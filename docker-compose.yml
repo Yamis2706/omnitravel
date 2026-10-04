@@ -1,0 +1,41 @@
+services:
+
+  postgres:
+    image: postgis/postgis:17-3.5
+    container_name: omnitravel-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: omnitravel
+      POSTGRES_PASSWORD: omnitravel_dev
+      POSTGRES_DB: omnitravel
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnitravel -d omnitravel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  valhalla:
+    image: ghcr.io/valhalla/valhalla:latest
+    container_name: omnitravel-valhalla
+    restart: unless-stopped
+
+    command: valhalla_service /data/valhalla.json
+    
+    ports:
+      - "8002:8002"
+
+    volumes:
+      - ./infra/valhalla/data:/data
+
+
+volumes:
+  postgres_data:
