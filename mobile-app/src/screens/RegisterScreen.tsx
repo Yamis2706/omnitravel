@@ -20,6 +20,7 @@ import {
   type NecesidadAccesibilidad,
 } from '../store/profileStore';
 import type { IconName } from '../services/types';
+import { registrarPasajeroSupabase } from '../services/supabase/auth';
 import {
   colors,
   fontSize,
@@ -77,6 +78,8 @@ export function validarContrasena(contrasena: string): boolean {
 export function RegisterScreen() {
   const guardarPerfil = useProfileStore((estado) => estado.guardarPerfil);
 
+  const [registrando, setRegistrando] = useState(false);
+
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [contrasena, setContrasena] = useState('');
@@ -92,7 +95,7 @@ export function RegisterScreen() {
     );
   };
 
-  const enviar = () => {
+  const enviar = async () => {
     const nuevosErrores: Errores = {};
 
     if (nombre.trim().length < 3) {
@@ -109,7 +112,6 @@ export function RegisterScreen() {
     setErrores(nuevosErrores);
 
     if (Object.keys(nuevosErrores).length > 0) {
-      // En Android los errores se anuncian con su región viva (evita doble lectura).
       if (Platform.OS === 'ios') {
         AccessibilityInfo.announceForAccessibility(
           'Hay errores en el formulario. Revisa los campos marcados.',
@@ -118,15 +120,35 @@ export function RegisterScreen() {
       return;
     }
 
-    guardarPerfil({
-      nombre: nombre.trim(),
-      necesidades,
-      filtrosActivos: [],
-    });
-    if (Platform.OS === 'ios') {
-      AccessibilityInfo.announceForAccessibility(
-        'Perfil creado. Bienvenido a OmniTravel.',
+    setRegistrando(true);
+    try {
+      // La cuenta (email + contraseña hasheada) vive en Supabase.
+      await registrarPasajeroSupabase({
+        nombre: nombre.trim(),
+        email: email.trim(),
+        contrasena,
+        necesidades: necesidades.map(String),
+      });
+
+      // El perfil de accesibilidad sigue siendo 100 % local (Ley 1581).
+      guardarPerfil({
+        nombre: nombre.trim(),
+        necesidades,
+        filtrosActivos: [],
+      });
+
+      if (Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibility(
+          'Perfil creado. Bienvenido a OmniTravel.',
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'No se pudo crear la cuenta',
+        (error as Error)?.message ?? 'Verifica tu conexión e intenta de nuevo.',
       );
+    } finally {
+      setRegistrando(false);
     }
   };
 
@@ -267,6 +289,7 @@ export function RegisterScreen() {
             titulo="Comenzar a explorar"
             icono="arrow-forward"
             onPress={enviar}
+            cargando={registrando}
             pistaAccesibilidad="Crea tu perfil local y abre el mapa de lugares accesibles"
             estilo={estilos.botonPrincipal}
           />

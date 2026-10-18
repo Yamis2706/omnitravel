@@ -95,6 +95,14 @@ npx expo start              # escanea el QR con Expo Go
 - Perfil configurable en una sola pantalla (≤ 3 pantallas / 5 interacciones).
 - Lint con reglas de accesibilidad (`eslint-plugin-triple-rn-a11y`).
 
+## Conexión a Supabase (front)
+
+- Cliente compartido en `src/services/supabase/` (URL + anon key del proyecto del equipo).
+- La autenticación se realiza contra la tabla `usuarios` (contraseña hasheada con SHA256,
+  igual que el front web) mediante `registrarPasajeroSupabase` / `iniciarSesionPasajero`.
+- Variables opcionales en `.env`: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+- El perfil de accesibilidad sigue siendo 100 % local (no se envía a Supabase).
+
 ## Notas para el equipo (backend / siguientes pasos)
 
 1. `POST /routes` usa `costing: 'auto'`; para OmniTravel corresponde
