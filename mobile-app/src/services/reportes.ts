@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { apiFetch } from './api/client';
 import type {
   AccionModeracion,
   ReporteComunitario,
@@ -11,16 +11,16 @@ import type {
 /**
  * Proceso 1 — Validación colaborativa (escritura).
  *
- * El front NO inserta filas directamente: ejecuta las funciones RPC
- * transaccionales definidas en
- * `docs/gestion/supabase-sara/peticiones-front-entrega2.sql`
- * (`crear_reporte`, `confirmar_reporte`, `decidir_reporte`,
- * `listar_reportes_moderacion`). Así el consenso de 3 confirmaciones es
- * atómico (RNF-18/23/28), la anti-autoconfirmación vive en la base y la
- * migración futura al backend NestJS no cambia el contrato del front.
+ * El front NO toca la base de datos: llama a los endpoints transaccionales
+ * del backend NestJS (PostgreSQL en AWS RDS):
+ *   POST /reportes · POST /reportes/:id/confirmaciones ·
+ *   GET /pois/:id/reporte-activo · GET /moderacion/reportes ·
+ *   POST /moderacion/reportes/:id/decision
+ * El consenso de 3 confirmaciones es atómico (RNF-18/23/28) y la
+ * anti-autoconfirmación y el rol de moderación se validan en el servidor.
  */
 
-/** Códigos de error que la BD devuelve como `'CODIGO: mensaje'`. */
+/** Códigos de error que el backend devuelve como `'CODIGO: mensaje'`. */
 export type CodigoErrorReporte =
   | 'USUARIO_NO_VINCULADO'
   | 'AUTOCONFIRMACION'
@@ -61,7 +61,7 @@ export class ReporteError extends Error {
 }
 
 /**
- * Traduce el mensaje crudo de PostgREST (`'CODIGO: mensaje'`) a un error
+ * Traduce el mensaje crudo del backend (`'CODIGO: mensaje'`) a un error
  * tipado. Cualquier mensaje ajeno a la convención se degrada a DESCONOCIDO
  * con un texto amable (p. ej. fallos de red o de permisos).
  */
@@ -111,7 +111,7 @@ export function mapearReporteComunitario(
   };
 }
 
-/** Fila cruda que devuelve la RPC `listar_reportes_moderacion`. */
+/** Fila cruda que devuelve `GET /moderacion/reportes`. */
 interface FilaReporteModeracion {
   id_reporte: number;
   tipo: string | null;
@@ -148,7 +148,7 @@ interface FilaReporteModeracion {
     | null;
 }
 
-/** Traduce la fila anidada de la RPC al contrato del front (M03–M05). */
+/** Traduce la fila anidada del backend al contrato del front (M03–M05). */
 export function mapearReporteModeracion(
   fila: FilaReporteModeracion,
 ): ReporteModeracion {
@@ -189,8 +189,6 @@ export function mapearReporteModeracion(
   };
 }
 
-/** Valores propuestos que el wizard (U09/U10) envía a la RPC. */
-
 /** Datos capturados por el wizard de reporte. */
 export interface DatosNuevoReporte {
   /** POI existente a actualizar; null cuando es un lugar nuevo. */
@@ -203,39 +201,47 @@ export interface DatosNuevoReporte {
   descripcion: string;
   esCritico: boolean;
   caracteristicas: ValorPropuestoReporte[];
-  /** Ruta de la foto ya subida al bucket `evidencia` (opcional). */
+  /** `storageKey` de la foto ya subida con `POST /evidencias` (opcional). */
   evidenciaStorageKey?: string | null;
+}
+
+/** Llama al backend y traduce sus errores `'CODIGO: mensaje'`. */
+async function llamarBackend<T>(ruta: string, init?: RequestInit): Promise<T> {
+  try {
+    return await apiFetch<T>(ruta, init);
+  } catch (error) {
+    throw mapearErrorReporte(error instanceof Error ? error.message : '');
+  }
 }
 
 /** Crea un reporte comunitario (U09/U10) y devuelve sus identificadores. */
 export async function crearReporte(
   datos: DatosNuevoReporte,
 ): Promise<{ idReporte: string; idPoi: string }> {
-  const { data, error } = await supabase.rpc('crear_reporte', {
-    p_poi_id: datos.poiId ? Number(datos.poiId) : null,
-    p_nombre: datos.nombre ?? null,
-    p_tipo_poi: datos.tipoPoi ?? null,
-    p_direccion: datos.direccion ?? null,
-    p_lat: datos.lat ?? null,
-    p_lon: datos.lon ?? null,
-    p_descripcion: datos.descripcion,
-    p_tipo_reporte: datos.poiId ? 'actualizacion' : 'nuevo',
-    p_es_critico: datos.esCritico,
-    p_caracteristicas: datos.caracteristicas.map((valor) => ({
-      caracteristicaId: valor.caracteristicaId,
-      valorBooleano:
-        valor.valorBooleano === undefined ? undefined : valor.valorBooleano,
-      valorNumerico: valor.valorNumerico,
-      valorTexto: valor.valorTexto,
-    })),
-    p_evidencia_storage_key: datos.evidenciaStorageKey ?? null,
+  const resultado = await llamarBackend<{
+    id_reporte: number;
+    id_poi: number;
+  } | null>('/reportes', {
+    method: 'POST',
+    body: JSON.stringify({
+      poiId: datos.poiId ? Number(datos.poiId) : null,
+      nombre: datos.nombre ?? null,
+      tipoPoi: datos.tipoPoi ?? null,
+      direccion: datos.direccion ?? null,
+      lat: datos.lat ?? null,
+      lon: datos.lon ?? null,
+      descripcion: datos.descripcion,
+      esCritico: datos.esCritico,
+      caracteristicas: datos.caracteristicas.map((valor) => ({
+        caracteristicaId: valor.caracteristicaId,
+        valorBooleano: valor.valorBooleano,
+        valorNumerico: valor.valorNumerico,
+        valorTexto: valor.valorTexto,
+      })),
+      evidenciaStorageKey: datos.evidenciaStorageKey ?? null,
+    }),
   });
 
-  if (error) {
-    throw mapearErrorReporte(error.message);
-  }
-
-  const resultado = data as { id_reporte: number; id_poi: number } | null;
   if (!resultado) {
     throw new ReporteError('DESCONOCIDO', MENSAJES_POR_CODIGO.DESCONOCIDO);
   }
@@ -248,23 +254,17 @@ export async function crearReporte(
 
 /**
  * Registra una confirmación comunitaria (C3). A la tercera confirmación de
- * usuarios independientes la BD publica el punto y `publicado` llega en true.
+ * usuarios independientes el backend publica el punto y `publicado` llega en true.
  */
 export async function confirmarReporte(
   reporteId: string,
 ): Promise<ResultadoConfirmacion> {
-  const { data, error } = await supabase.rpc('confirmar_reporte', {
-    p_reporte_id: Number(reporteId),
-  });
-
-  if (error) {
-    throw mapearErrorReporte(error.message);
-  }
-
-  const resultado = data as {
+  const resultado = await llamarBackend<{
     confirmaciones: number;
     publicado: boolean;
-  } | null;
+  } | null>(`/reportes/${Number(reporteId)}/confirmaciones`, {
+    method: 'POST',
+  });
 
   return {
     confirmaciones: resultado?.confirmaciones ?? 0,
@@ -279,55 +279,34 @@ export async function confirmarReporte(
 export async function obtenerReporteDePoi(
   poiId: string,
 ): Promise<ReporteComunitario | null> {
-  const { data, error } = await supabase
-    .from('reporte')
-    .select('id_reporte, poi_id, estado, es_critico, fecha_creacion')
-    .eq('poi_id', Number(poiId))
-    .order('fecha_creacion', { ascending: false })
-    .limit(5);
-
-  if (error) {
-    throw new Error(`No se pudo leer el reporte: ${error.message}`);
-  }
-
-  const filas = (data ?? []) as FilaReporte[];
-  const activo = filas.find(
-    (fila) => (fila.estado ?? '').trim().toLowerCase() !== 'rechazado',
-  );
-  if (!activo) {
-    return null;
-  }
-
-  const { count, error: errorConteo } = await supabase
-    .from('confirmacion')
-    .select('id_confirmacion', { count: 'exact', head: true })
-    .eq('reporte_id', activo.id_reporte);
-
-  if (errorConteo) {
+  let respuesta: {
+    reporte: (FilaReporte & { confirmaciones: number }) | null;
+  };
+  try {
+    respuesta = await apiFetch(`/pois/${Number(poiId)}/reporte-activo`);
+  } catch (error) {
     throw new Error(
-      `No se pudieron leer las confirmaciones: ${errorConteo.message}`,
+      `No se pudo leer el reporte: ${error instanceof Error ? error.message : ''}`,
     );
   }
 
-  return mapearReporteComunitario(activo, count ?? 0);
+  const { reporte } = respuesta;
+  return reporte
+    ? mapearReporteComunitario(reporte, reporte.confirmaciones ?? 0)
+    : null;
 }
 
 /**
- * Lista de reportes para la consola de moderación (M03/M04). La BD valida el
- * rol (moderador/administrador); sin permiso responde ACCESO_DENEGADO.
+ * Lista de reportes para la consola de moderación (M03/M04). El backend valida
+ * el rol (moderador/administrador); sin permiso responde ACCESO_DENEGADO.
  */
 export async function listarReportesModeracion(
   estado: string = 'pendiente',
 ): Promise<ReporteModeracion[]> {
-  const { data, error } = await supabase.rpc('listar_reportes_moderacion', {
-    p_estado: estado,
-  });
-
-  if (error) {
-    throw mapearErrorReporte(error.message);
-  }
-
-  return ((data ?? []) as FilaReporteModeracion[]).map(mapearReporteModeracion);
+  const filas = await llamarBackend<FilaReporteModeracion[]>(
+    `/moderacion/reportes?estado=${encodeURIComponent(estado)}`,
+  );
+  return (filas ?? []).map(mapearReporteModeracion);
 }
 
 /**
@@ -339,16 +318,12 @@ export async function decidirReporte(
   accion: AccionModeracion,
   motivo?: string,
 ): Promise<{ estado: string }> {
-  const { data, error } = await supabase.rpc('decidir_reporte', {
-    p_reporte_id: Number(reporteId),
-    p_accion: accion,
-    p_motivo: motivo?.trim() || null,
-  });
-
-  if (error) {
-    throw mapearErrorReporte(error.message);
-  }
-
-  const resultado = data as { estado: string } | null;
+  const resultado = await llamarBackend<{ estado: string } | null>(
+    `/moderacion/reportes/${Number(reporteId)}/decision`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ accion, motivo: motivo?.trim() || null }),
+    },
+  );
   return { estado: resultado?.estado ?? accion };
 }

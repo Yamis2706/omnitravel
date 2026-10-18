@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { BrandMark } from '../components/BrandMark';
 import { CampoTexto } from '../components/CampoTexto';
-import { registrarCuenta } from '../services/supabase/auth';
+import { registrarCuenta } from '../services/api/auth';
 import type { IconName } from '../services/types';
 import type { RootStackParamList } from '../navigation/types';
 import {
@@ -128,7 +128,7 @@ export function RegisterScreen() {
 
     setRegistrando(true);
     try {
-      // La cuenta vive en Supabase Auth (proyecto OmniTravel del equipo).
+      // La cuenta se crea en el backend (PostgreSQL en AWS RDS).
       const resultado = await registrarCuenta({
         nombre: nombre.trim(),
         email: email.trim(),
@@ -149,8 +149,7 @@ export function RegisterScreen() {
         );
       }
 
-      // Aviso informativo (no error) cuando la sincronización con la tabla
-      // `usuario` queda pendiente de las políticas RLS del equipo de datos.
+      // Aviso informativo (no error), si el backend devuelve alguno.
       if (resultado.aviso) {
         Alert.alert('Cuenta creada', resultado.aviso);
       }

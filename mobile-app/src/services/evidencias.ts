@@ -1,18 +1,19 @@
 import * as ImagePicker from 'expo-image-picker';
-import { supabase } from './supabase';
+import { API_URL, apiFetch } from './api/client';
 
 /**
  * Evidencia fotográfica del Proceso 1 (U09).
  *
  * Flujo: image-picker captura con `base64: true` (compatible con Expo Go y
- * con el APK de EAS) → se decodifica a ArrayBuffer → se sube al bucket
- * público `evidencia` en la carpeta `<auth.uid()>/…`, única ruta que las
- * políticas de Storage aceptan. El bucket valida en servidor el peso (5 MB)
- * y los MIME de imagen (RNF-29); aquí además se degrada con gracia: si la
- * subida falla, el reporte se envía igual sin foto.
+ * con el APK de EAS) → se envía a `POST /evidencias` del backend, que valida
+ * peso (5 MB) y tipo de imagen (RNF-29) y la guarda en la carpeta del
+ * usuario autenticado (`<id_usuario>/…`). Por ahora el backend la guarda en
+ * su disco; al desplegar en AWS pasará a un bucket S3 sin cambiar este
+ * contrato. Si la subida falla, el reporte se envía igual sin foto.
  */
 
-export const BUCKET_EVIDENCIA = 'evidencia';
+/** Las fotos pesan hasta 5 MB: se da más margen que el timeout por defecto. */
+const TIMEOUT_SUBIDA_MS = 60000;
 
 /** Foto capturada y lista para subir. */
 export interface FotoCapturada {
@@ -77,65 +78,36 @@ export async function capturarFoto(
   };
 }
 
-/** Decodifica base64 a ArrayBuffer (Hermes incluye `atob` desde RN 0.74). */
-export function base64AArrayBuffer(base64: string): ArrayBuffer {
-  const binario = atob(base64);
-  const bytes = new Uint8Array(binario.length);
-  for (let indice = 0; indice < binario.length; indice += 1) {
-    bytes[indice] = binario.charCodeAt(indice);
-  }
-  return bytes.buffer;
-}
-
-function extensionDe(mimeType: string): string {
-  if (mimeType.includes('png')) {
-    return 'png';
-  }
-  if (mimeType.includes('webp')) {
-    return 'webp';
-  }
-  return 'jpg';
-}
-
 /**
- * Sube la foto al bucket `evidencia` bajo la carpeta del usuario autenticado
- * y devuelve la ruta (`storage_key`) que se persiste en la tabla `evidencia`.
+ * Sube la foto al backend y devuelve la ruta (`storage_key`) que se
+ * persiste en la tabla `evidencia` al crear el reporte.
  */
 export async function subirEvidencia(
   foto: FotoCapturada,
 ): Promise<{ storageKey: string }> {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) {
-    throw new Error(
-      'Necesitas una sesión activa para adjuntar la foto de evidencia.',
+  try {
+    return await apiFetch<{ storageKey: string }>(
+      '/evidencias',
+      {
+        method: 'POST',
+        body: JSON.stringify({ base64: foto.base64, mimeType: foto.mimeType }),
+      },
+      TIMEOUT_SUBIDA_MS,
     );
-  }
-
-  const extension = extensionDe(foto.mimeType);
-  const storageKey = `${data.user.id}/${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}.${extension}`;
-
-  const { error: errorSubida } = await supabase.storage
-    .from(BUCKET_EVIDENCIA)
-    .upload(storageKey, base64AArrayBuffer(foto.base64), {
-      contentType: foto.mimeType,
-      upsert: false,
-    });
-
-  if (errorSubida) {
+  } catch (error) {
+    const mensaje = error instanceof Error ? error.message : '';
+    if (mensaje.startsWith('USUARIO_NO_VINCULADO')) {
+      throw new Error(
+        'Necesitas una sesión activa para adjuntar la foto de evidencia.',
+      );
+    }
     throw new Error(
       'No pudimos subir la foto. Revisa tu conexión e inténtalo de nuevo.',
     );
   }
-
-  return { storageKey };
 }
 
-/** URL pública de una evidencia (bucket de lectura comunitaria). */
+/** URL pública de una evidencia (lectura comunitaria desde el backend). */
 export function urlPublicaEvidencia(storageKey: string): string {
-  const { data } = supabase.storage
-    .from(BUCKET_EVIDENCIA)
-    .getPublicUrl(storageKey);
-  return data.publicUrl;
+  return `${API_URL}/evidencias/archivo/${storageKey}`;
 }

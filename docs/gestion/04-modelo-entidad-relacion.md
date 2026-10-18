@@ -11,7 +11,7 @@ No se adoptan migraciones versionadas todavía [decisión pendiente]; mientras t
 
 | Entidad (tabla) | Si existe en el diseño | Responsabilidad / observaciones |
 |---|---|---|
-| `USUARIO` | Vía Supabase (cuenta) | Cuenta de acceso y datos básicos: rol (`VIAJERO_ADI`, `COLABORADOR`, `ESTABLECIMIENTO`, `MODERADOR`, `ADMIN`), correo, estado de aprobación y fecha de creación. Ver discrepancia del esquema compartido. |
+| `USUARIO` | Vía backend (cuenta en AWS RDS) | Cuenta de acceso y datos básicos: rol (`VIAJERO_ADI`, `COLABORADOR`, `ESTABLECIMIENTO`, `MODERADOR`, `ADMIN`), correo, estado de aprobación y fecha de creación. Ver discrepancia del esquema compartido. |
 | `PERFIL_ACCESIBILIDAD` | No (local) | Se guarda **en el dispositivo**, no en el backend (RNF-07): tipo de discapacidad (motriz/sensorial), preferencias de filtro y necesidades. Referencia solo para diseño de la app. |
 | `POI` | Sí | Punto de interés: nombre, categoría, descripción, dirección, ciudad, `geography(Point,4326)`, estado de verificación (`PENDIENTE`, `EN_REVISION`, `VERIFICADO`), confirmaciones comunitarias, calificación agregada, total de experiencias, última verificación, creador y fecha de creación. Índice GIST sobre la geometría (RNF-04). |
 | `CARACTERISTICA_ACCESIBILIDAD` | Sí | Catálogo controlado (no EAV libre): identificador (`ancho_puerta`, `tiene_rampa`, `tiene_ascensor`, `tiene_escaleras`, `tiene_bano_accesible`, `tiene_semaforo_sonoro`, `tiene_piso_podotactil`, `tiene_braille`), nombre, descripción, tipo de valor (`NUMERICO`, `BOOLEANO`, `TEXTO`), unidad e icono. El catálogo es extensible sin tocar formularios ni filtros. |
@@ -28,7 +28,7 @@ No se adoptan migraciones versionadas todavía [decisión pendiente]; mientras t
 | `AUDITORIA_MODERACION` | Propuesta | Registro inmutable de acciones críticas de moderación (quién, cuándo, qué) (RNF-30). Solo escritura desde el backend. |
 
 ## Tipos y convenciones de mapeo
-- Identificadores: `UUID` en las tablas de dominio (alineado a Supabase/Auth), generados por el backend.
+- Identificadores: `UUID` en las tablas de dominio , generados por la BD (en AWS RDS hoy son `bigint` identity).
 - Geometría: `geography(Point, 4326)` en `POI`; consultas espaciales con operadores PostGIS e índices GIST.
 - Estados: `VARCHAR` con `CHECK` o enums de backend con los valores exactos definidos arriba (`PENDIENTE`/`EN_REVISION`/`VERIFICADO` en POI; `PENDIENTE_VALIDACION`/`PUBLICADO`/`RECHAZADO`/`REVERIFICACION_SOLICITADA` en reportes).
 - Calificaciones y agregados: `NUMERIC(3,2)` para la media; contadores `INT`.
@@ -52,7 +52,7 @@ No se adoptan migraciones versionadas todavía [decisión pendiente]; mientras t
 
 ## Discrepancias / verificaciones pendientes
 - Validar contra el modelo físico de 16 tablas del diseño de BD (nombres exactos, tipos y restricciones).
-- El proyecto Supabase compartido expone hoy una tabla `usuarios` con campos de transporte ajenos al dominio; definir si OmniTravel usa su propio proyecto/esquema.
+- Resuelto: OmniTravel usa su propio esquema en PostgreSQL + PostGIS en AWS RDS (`omnitravel_db`); el proyecto Supabase compartido ya no es fuente de datos.
 - Confirmar el rol exacto de `INFORMACION_ACCESIBILIDAD` respecto de `VALOR_ACCESIBILIDAD_POI`.
 - Contrato de notificaciones pendiente de aprobación.
 

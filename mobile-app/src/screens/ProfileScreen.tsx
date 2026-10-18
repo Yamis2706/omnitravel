@@ -11,7 +11,7 @@ import {
   useProfileStore,
   type NecesidadAccesibilidad,
 } from '../store/profileStore';
-import { supabase } from '../services/supabase';
+import { cerrarSesionCuenta } from '../services/api/auth';
 import { colors, fontSize, fontWeight, radii, spacing } from '../utils/theme';
 
 const ETIQUETAS_NECESIDAD: Record<NecesidadAccesibilidad, string> = {
@@ -44,8 +44,8 @@ export function ProfileScreen() {
           text: 'Cerrar sesión',
           style: 'destructive',
           onPress: () => {
-            // Cierra también la sesión de Supabase Auth (best-effort).
-            void supabase.auth.signOut();
+            // Borra también el token de sesión del dispositivo.
+            void cerrarSesionCuenta();
             cerrarSesion();
           },
         },

@@ -4,8 +4,8 @@ Paquete de documentación de ingeniería del proyecto **OmniTravel** (turismo ac
 
 - **App móvil:** React Native / Expo SDK 57 (TypeScript) — `mobile-app/`
 - **Backend:** NestJS con API REST `/api/v1` (`POST /routes` operativo vía Valhalla)
-- **Persistencia:** PostgreSQL 17 + PostGIS 3.5 y motor de ruteo **Valhalla** (local en `docker-compose.yml`)
-- **Identidad:** Supabase Auth (proyecto compartido del equipo) con sesión cifrada en el dispositivo
+- **Persistencia:** PostgreSQL + PostGIS en **AWS RDS** (base `omnitravel_db`), accesible solo desde el backend; motor de ruteo **Valhalla** (local en `docker-compose.yml`)
+- **Identidad:** cuentas propias en el backend (bcrypt + JWT ≤ 24 h) con sesión cifrada en el dispositivo
 - **Servicios externos:** Mapbox/OpenStreetMap, AWS S3, notificaciones push
 
 ## Orden de lectura
@@ -27,12 +27,12 @@ Paquete de documentación de ingeniería del proyecto **OmniTravel** (turismo ac
 - El documento **04 (schema de BD) está en pausa**: el equipo lo revisará después; no bloquea la aprobación del `openapi.yaml` ni del resto del paquete.
 - El documento **07 y `openapi.yaml`** son **propuestas (BORRADOR 0.1.0)**: el paso siguiente del equipo es aprobar el contrato (ver `00-checklist-aprobacion.md`); después pasan a ser fuente de verdad.
 - `MER.pdf` del repo de referencia no se copia: cuando el MER se revise, generarlo con el DSL incluido en `04` y añadirlo aquí.
-- Otros elementos quedan marcados **PENDIENTE** de decisión (contrato de notificaciones, proyecto/esquema Supabase propio, perfil accesible de Valhalla, límites de evidencia): ver `01`, `00` y `10`.
+- Otros elementos quedan marcados **PENDIENTE** de decisión (contrato de notificaciones, perfil accesible de Valhalla, límites de evidencia): ver `01`, `00` y `10`.
 
 ## Infraestructura local (nunca subir al repositorio)
 La configuración con credenciales **no se versiona** en GitHub (regla registrada en `.gitignore`):
 - `docker-compose.yml` (PostGIS + Valhalla con credenciales de BD) y variantes `docker-compose.*.yml`.
-- `.env` / `.env.*` (variables de Supabase, S3, push) — solo una plantilla `.env.example`, si se crea, puede subir.
+- `.env` / `.env.*` (credenciales de la BD en AWS, JWT, S3, push) — solo una plantilla `.env.example`, si se crea, puede subir.
 - Datos generados de Valhalla (`infra/valhalla/data/valhalla/`) y tiles `.pbf`.
 
 ## Fuentes del proyecto (en `docs/`)

@@ -6,7 +6,7 @@ información de accesibilidad de infraestructura turística.
 
 > **Estado:** MVP navegable (rama `dev_yamis`) con login (U01/U02), registro
 > (U03), mapa (U06) y detalle (U08) de los mockups oficiales, datos de la BD
-> del equipo (Supabase OmniTravel) con degradación a demo tipada y ruteo
+> del equipo (PostgreSQL en AWS RDS, vía backend) con degradación a demo tipada y ruteo
 > real contra el backend (`POST /routes`).
 
 ## Stack
@@ -73,16 +73,16 @@ npx expo start              # escanea el QR con Expo Go
 
 | Pantalla | Estado | Notas |
 | --- | --- | --- |
-| **U01/U02** Inicio de sesión | ✅ | Supabase Auth (signIn + sesión cifrada con SecureStore) |
-| **U03** Registro y Privacidad | ✅ | Cuenta real en Supabase Auth + perfil de accesibilidad local + aviso Ley 1581 |
+| **U01/U02** Inicio de sesión | ✅ | Backend `POST /auth/login` (JWT + sesión cifrada con SecureStore) |
+| **U03** Registro y Privacidad | ✅ | Cuenta real vía backend `POST /auth/register` (tabla `usuario` en AWS) + perfil de accesibilidad local + aviso Ley 1581 |
 | **U05** Filtros de accesibilidad | ✅ | Bottom sheet generado desde el catálogo (motriz/sensorial) |
 | **U06** Mapa y Ruteo | ✅ | Base Google en Expo Go + POIs reales de la BD del equipo (fallback a demo con aviso visible) + ruta real contra `POST /routes` con restricciones del perfil, advertencia de datos > 60 días (RNF-27) y acceso a U07 |
 | **U07** Navegación paso a paso | ✅ | `maneuvers` de Valhalla con instrucción localizada, distancia e ícono direccional + botón "Finalizar"; fallo del motor con mensaje y reintento (RNF-17) |
 | **U08** Detalle del lugar | ✅ | Ficha dinámica por `tipo_valor` + verificación comunitaria |
-| **U09–U10** Contribuir (reporte) | ✅ | Wizard de 3 pasos (tipo → ubicación+foto → características) que escribe `reporte` vía RPC y sube evidencia al bucket `evidencia` con degradación elegante |
+| **U09–U10** Contribuir (reporte) | ✅ | Wizard de 3 pasos (tipo → ubicación+foto → características) que escribe `reporte` vía `POST /reportes` y sube evidencia con `POST /evidencias` con degradación elegante |
 | **S01 / S02** Modales | ✅ | S01 Consenso alcanzado (P1) y S02 barrera crítica en ruta con recálculo (P2) |
 | **M03–M05** Consola de moderación | ✅ | Lista priorizada, detalle con evidencia y decisión con motivo obligatorio (visible solo para rol moderador) |
-| Inicio (U04), Guardados, Perfil (U12) | 🔶 Stub | Llegan en la siguiente iteración (U12 ya difunde/desconecta sesión Supabase) |
+| Inicio (U04), Guardados, Perfil (U12) | 🔶 Stub | Llegan en la siguiente iteración (U12 ya cierra sesión: borra el token del dispositivo) |
 
 ## Decisiones clave
 
@@ -111,25 +111,25 @@ npx expo start              # escanea el QR con Expo Go
 - Perfil configurable en una sola pantalla (≤ 3 pantallas / 5 interacciones).
 - Lint con reglas de accesibilidad (`eslint-plugin-triple-rn-a11y`).
 
-## Conexión a Supabase (front)
+## Conexión a la base de datos (AWS)
 
-- Proyecto del equipo: **"sarafaustino's Project"** (org OmniTravel, ref
-  `scpwrozsjpittiypvwxj`) — esquema OmniTravel con PostGIS. Informe y
-  coordinación con la BD: `docs/gestion/supabase-sara/README.md`.
-- Cliente compartido en `src/services/supabase/` (URL + publishable key por
-  `.env` NO versionado; copia `.env.example` para crearlo).
-- Registro/login reales vía **Supabase Auth**; la fila de `usuario` queda
-  vinculada por `auth_user_id` (políticas RLS ya aplicadas en la BD el
-  2026-10-17 — registro verificado con INSERT 201 y perfil privado: solo el
-  dueño autenticado ve su fila).
-- **Confirmación de correo desactivada** en el proyecto
-  (`MAILER_AUTOCONFIRM = true`, 2026-10-18): `signUp` devuelve sesión
-  inmediata y el flujo registro → login funciona sin correo de
-  confirmación. Si se reactiva, `registrarCuenta` avisa el paso pendiente
-  sin bloquear la app.
-- **POIs reales** desde la BD (`services/pois.ts` + `store/poisStore.ts`)
-  con degradación a mocks tipados si la lectura sigue bloqueada por RLS.
-- El perfil de accesibilidad sigue siendo 100 % local (no se envía a Supabase).
+- La BD del equipo es **PostgreSQL + PostGIS en AWS RDS** (base
+  `omnitravel_db`). La app **no** se conecta a ella ni guarda credenciales:
+  todo pasa por el backend NestJS (`EXPO_PUBLIC_API_URL`, cliente en
+  `src/services/api/client.ts`).
+- Registro/login: `POST /auth/register` y `POST /auth/login`
+  (`src/services/api/auth.ts`). El backend guarda la cuenta en `usuario` con
+  bcrypt y devuelve un JWT (≤ 24 h) que se guarda cifrado con SecureStore y
+  viaja como `Authorization: Bearer` en cada petición.
+- **POIs reales** desde `GET /mapa` (`services/pois.ts` +
+  `store/poisStore.ts`), con degradación a mocks tipados si el backend no
+  responde.
+- Proceso 1: `POST /reportes`, `POST /reportes/:id/confirmaciones`,
+  `GET /pois/:id/reporte-activo`, `GET /moderacion/reportes` y
+  `POST /moderacion/reportes/:id/decision` (`services/reportes.ts`). Las
+  fotos van a `POST /evidencias` (`services/evidencias.ts`); por ahora el
+  backend las guarda en disco y al desplegar en AWS pasarán a S3.
+- El perfil de accesibilidad sigue siendo 100 % local (no se envía al backend).
 
 ## Notas para el equipo (backend / siguientes pasos)
 
@@ -139,16 +139,13 @@ npx expo start              # escanea el QR con Expo Go
    favorecidos; visual → `type: 'blind'`), instrucciones en `es-ES` y
    respuesta normalizada con `pasos[]` (maneuvers) y `advertencias[]`.
    Contrato y pruebas: `backend/src/routing/valhalla-payload.ts`.
-2. El Proceso 1 escribe directo a Supabase (RPC `security definer` + Storage
-   del bucket `evidencia`); queda como deuda técnica migrar esas escrituras a
-   NestJS manteniendo el contrato (ADR en `docs/gestion/11-plan-entrega-2.md`).
-3. La BD del equipo ya tiene las políticas RLS del front aplicadas
-   (2026-10-17, `docs/gestion/supabase-sara/`); el mapa muestra los POIs
-   reales y el registro escribe en `usuario`.
-4. Config de Auth del proyecto: confirmación de correo desactivada
-   (`MAILER_AUTOCONFIRM = true`); cuenta de prueba personal creada,
-   confirmada y vinculada (fila `usuario` id 11). Detalles en
-   `docs/gestion/supabase-sara/README.md`.
+2. El Proceso 1 ya escribe a través del backend NestJS (migrado desde las
+   RPC de Supabase manteniendo los mismos códigos de error `CODIGO: mensaje`).
+3. Los datos de Supabase se copian a AWS con
+   `backend/scripts/copiar-supabase-a-aws.mjs`; las cuentas copiadas entran
+   con su misma contraseña (el backend migra el hash a bcrypt).
+4. Pendiente al desplegar: mover las fotos de evidencia del disco del
+   backend a un bucket S3 (la `storage_key` ya tiene la forma `<id_usuario>/<archivo>`).
 5. Re-probar en Expo Go tras el primer video: U03 registro → U01 login con
    la cuenta creada → U06 mapa (tiles + marcadores) → U08 detalle. En la
    nueva grabación: no teclear la contraseña a la vista (o editarla) y

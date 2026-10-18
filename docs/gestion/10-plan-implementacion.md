@@ -4,14 +4,14 @@ El orden busca construir primero las capacidades de las que dependen los módulo
 
 ## Fase 0 — Preparación y acuerdos (en curso)
 - Aprobar la propuesta de documentación (los de esta carpeta `docs/gestion/`), en particular el `openapi.yaml` y el esquema propio de OmniTravel frente al proyecto Supabase compartido.
-- Decidir el acceso: backend NestJS como única puerta de la BD (con el acceso directo Supabase/RLS retirado del lado app).
+- ✅ Acceso decidido: backend NestJS como única puerta de la BD en AWS RDS (acceso directo Supabase retirado de la app).
 - Confirmar imagen de PostGIS (ya definida: `postgis/postgis:17-3.5`) y acordar herramienta de migraciones cuando el esquema se estabilice.
 - Definir los tamaños de carga de evidencia y el catálogo inicial de características con el equipo.
 
 ## Fase 1 — Esqueleto del backend y modelo de datos
 - Módulos NestJS `auth`, `users`, `pois`, `accessibility` con `ConfigModule` validado, formato `Error` global y Swagger.
 - Esquema físico de OmniTravel (documento 04) sobre el PostGIS de `docker-compose`.
-- Endpoints de autenticación delegando en Supabase Auth (o cuenta propia según decisión) con validación de claims.
+- ✅ Endpoints de autenticación con cuentas propias (bcrypt + JWT) sobre la tabla `usuario` en AWS RDS.
 - Pruebas: contrato del formato `Error`, tokens ausente/inválido/expirado, roles.
 
 ## Fase 2 — POI y mapa (reemplazo de mocks)
@@ -53,4 +53,4 @@ El orden busca construir primero las capacidades de las que dependen los módulo
 ## Fase 9 — Despliegue y operación
 - Builds y OTA con EAS para la app; entorno cloud para backend+BD (decisión por ADR).
 - Monitoreo de disponibilidad (RNF-16) y logging sin PII; secretos fuera del repo.
-- Revisión final de seguridad: RLS/permisos del proyecto Supabase (o retiro del acceso directo), CORS, exposición de Swagger.
+- Revisión final de seguridad: security group de AWS RDS (solo el backend accede a la BD), CORS, exposición de Swagger.

@@ -1,7 +1,11 @@
+import * as SecureStore from 'expo-secure-store';
+
 /**
- * Cliente HTTP base para el backend OmniTravel (NestJS).
+ * Cliente HTTP base para el backend OmniTravel (NestJS), única vía de la
+ * app hacia la base de datos (PostgreSQL en AWS RDS).
  *
  * - Usa EXPO_PUBLIC_API_URL (ver .env.example).
+ * - Adjunta el JWT de sesión (guardado cifrado con expo-secure-store).
  * - Timeout de 10 s y errores normalizados para que la UI pueda mostrar
  *   mensajes claros (RNF-17: nunca fallar en silencio).
  */
@@ -9,6 +13,9 @@
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 const TIMEOUT_MS = 10000;
+
+/** Clave del token de sesión en el almacenamiento seguro del dispositivo. */
+export const CLAVE_TOKEN = 'omnitravel-token';
 
 export class ApiError extends Error {
   readonly status?: number;
@@ -23,16 +30,19 @@ export class ApiError extends Error {
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
+  timeoutMs: number = TIMEOUT_MS,
 ): Promise<T> {
   const controlador = new AbortController();
-  const temporizador = setTimeout(() => controlador.abort(), TIMEOUT_MS);
+  const temporizador = setTimeout(() => controlador.abort(), timeoutMs);
 
   try {
+    const token = await SecureStore.getItemAsync(CLAVE_TOKEN).catch(() => null);
     const respuesta = await fetch(`${API_URL}${path}`, {
       ...init,
       signal: controlador.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(init?.headers ?? {}),
       },
     });

@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { BrandMark } from '../components/BrandMark';
 import { CampoTexto } from '../components/CampoTexto';
-import { iniciarSesionCuenta, rolDeUsuarioId } from '../services/supabase/auth';
+import { iniciarSesionCuenta, rolDeUsuarioId } from '../services/api/auth';
 import type { RootStackParamList } from '../navigation/types';
 import { useProfileStore } from '../store/profileStore';
 import { colors, fontSize, fontWeight, spacing } from '../utils/theme';

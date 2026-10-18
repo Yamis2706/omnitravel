@@ -7,7 +7,7 @@
 | [ADR-001](ADR-001-app-movil-multiplataforma.md) | App móvil multiplataforma (React Native/Expo) como único cliente multirol | Aceptada |
 | [ADR-002](ADR-002-backend-separado-por-modulos.md) | Frontend móvil y backend NestJS separados por módulos | Aceptada |
 | [ADR-003](ADR-003-api-rest-versionada.md) | API REST versionada bajo `/api/v1` con OpenAPI | Propuesta |
-| [ADR-004](ADR-004-stack-tecnologico.md) | Stack: Expo RN + NestJS + PostgreSQL/PostGIS + Valhalla (+ Supabase, S3) | Aceptada |
+| [ADR-004](ADR-004-stack-tecnologico.md) | Stack: Expo RN + NestJS + PostgreSQL/PostGIS + Valhalla (+ AWS RDS, S3) | Aceptada |
 | [ADR-005](ADR-005-bd-relacional-geoespacial.md) | BD relacional PostgreSQL con extensión geoespacial PostGIS | Aceptada |
 | [ADR-006](ADR-006-orm-sql-geoespacial-selectivo.md) | ORM estándar + SQL geoespacial selectivo encapsulado | Propuesta |
 | [ADR-007](ADR-007-jwt-rbac-datos-sensibles-locales.md) | JWT + RBAC; datos sensibles del perfil solo en el dispositivo | Propuesta |

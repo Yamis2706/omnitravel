@@ -1,5 +1,7 @@
 # 11. Plan de trabajo — Entrega 2 (ventana de 48 horas)
 
+> **Actualización 2026-10-18 — BD en AWS:** la base de datos de OmniTravel es **PostgreSQL + PostGIS en AWS RDS** (base `omnitravel_db`). La app ya no usa Supabase: toda lectura y escritura pasa por el backend NestJS (JWT propio, bcrypt). La decisión D1 de este plan (escritura directa a Supabase) quedó reemplazada. Detalle en `05-arquitectura-backend.md` y `backend/README.md`.
+
 > Ciclo: Entrega 2 (25%) · Alcance funcional: **Proceso 1 (Validación Colaborativa de Infraestructura)** y **Proceso 2 (Planificación de Rutas Accesibles Personalizadas)** al 100 % y desplegados · Fecha de redacción: 2026-10-18 · Autora del plan: frente frontend.
 >
 > Regla de oro de esta ventana: **congelar alcance**. Todo lo que no esté en este plan se ejecuta solo si los bloques P0 están cerrados y verificados. Nada nuevo después del primer tercio del Día 2.

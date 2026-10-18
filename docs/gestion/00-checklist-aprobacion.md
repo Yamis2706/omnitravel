@@ -12,11 +12,11 @@ Guion corto para cerrar el paso documental antes de mover la carpeta `gestion/` 
 
 ## 2. Modelo de datos — `04-modelo-entidad-relacion.md`
 - [ ] **En pausa**: el equipo lo revisará después. Mientras tanto, ninguna implementación debe tomarlo como norma.
-- Nota para esa revisión: validar contra el modelo físico de 16 tablas y resolver el destino del proyecto/esquema Supabase compartido.
+- Nota para esa revisión: validar contra el modelo físico de 16 tablas (resuelto: la BD está en AWS RDS).
 
 ## 3. Decisiones pendientes (bloquean fases del plan 10)
 - [ ] Contrato de notificaciones push (U5/U11) — sin él, no se implementa `notifications`.
-- [ ] Proyecto/esquema Supabase propio para OmniTravel (hoy compartido con el front web).
+- [x] BD propia para OmniTravel: PostgreSQL + PostGIS en AWS RDS (`omnitravel_db`); Supabase retirado.
 - [ ] Perfil de ruteo de Valhalla (migrar `costing: 'auto'` → peatonal accesible + lógica de barreras).
 - [ ] Límite de tamaño y tipos de evidencia para S3 (RNF-29).
 - [ ] Consulta del mapa pública o autenticada.

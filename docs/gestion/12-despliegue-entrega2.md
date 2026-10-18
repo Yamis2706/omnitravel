@@ -9,7 +9,7 @@
 | App móvil (APK Android) | **EAS Build** (nube de Expo) | `eas.json` listo (`preview` → APK) | `npm run build:apk` en `mobile-app/` |
 | Backend NestJS | Nube (Render/Railway) o **LAN** | Dockerfile listo en `backend/` | ver §2 |
 | Motor Valhalla | **LAN** (Docker) — o VPS si se consigue | Grafo **ya construido** en `infra/valhalla/data/valhalla/` | `docker compose up -d valhalla` |
-| BD + Auth (Supabase) | Nube | Operativo (RLS + RPC de la Entrega 2) | ejecutar `peticiones-front-entrega2.sql` |
+| BD (PostgreSQL + PostGIS) | **AWS RDS** (`omnitravel_db`) | Operativa; Auth y Proceso 1 en el backend | `DATABASE_URL` en `backend/.env`; datos copiados con `backend/scripts/copiar-supabase-a-aws.mjs` |
 
 Decisión de ventana: el APK (nube) es el **link de la aplicación desplegada**; Valhalla y el backend pueden quedar en LAN para la demo + video de evidencia. Si el backend queda en LAN, el APK que se reparta debe construirse con la **IP LAN** en `EXPO_PUBLIC_API_URL` (ver §3) — o construirse un APK "demo" con la URL LAN del día de la grabación.
 
@@ -27,10 +27,6 @@ npx.cmd eas-cli@latest login
 npx.cmd eas-cli@latest init
 
 # 3) Configurar las variables de entorno del perfil preview (una sola vez)
-npx.cmd eas-cli@latest env:create --environment preview --visibility plaintext `
-  --name EXPO_PUBLIC_SUPABASE_URL --value "https://scpwrozsjpittiypvwxj.supabase.co"
-npx.cmd eas-cli@latest env:create --environment preview --visibility plaintext `
-  --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "<publishable-key del .env local>"
 npx.cmd eas-cli@latest env:create --environment preview --visibility plaintext `
   --name EXPO_PUBLIC_API_URL --value "http://<IP-LAN-del-backend>:3000"
 
@@ -107,7 +103,7 @@ Respuesta esperada: `distanciaKm`, `duracionMin`, `perfil`, `shape`, `pasos[]` y
 ## 4. Credenciales de acceso para la entrega
 
 1. Registrar **4 cuentas** desde la app (U03): 3 viajeros + 1 que será moderador.
-2. Promover la cuenta moderadora (SQL Editor de Supabase — incluido en `peticiones-front-entrega2.sql`, §6a):
+2. Promover la cuenta moderadora (cliente SQL conectado a AWS RDS, base `omnitravel_db`):
 
 ```sql
 update public.usuario set rol_id = 4 where email = 'moderador.demo@omnitravel.test';
@@ -141,5 +137,5 @@ update public.usuario set rol_id = 4 where email = 'moderador.demo@omnitravel.te
 |---|---|
 | EAS en cola > 40 min | Lanzar el build en cuanto esté el código congelado (mañana temprano); revisar el estado por la web |
 | IP LAN cambia / red de la universidad bloquea | Grabar el video el mismo día con la IP fijada; alternativa: hotspot del celular |
-| APK con URL LAN no sirve fuera de la red | Distribuir también el video + nota en la entrega; el resto de funcionalidades (reportar/confirmar/moderar) no depende del backend |
+| APK con URL LAN no sirve fuera de la red | Distribuir también el video + nota en la entrega; login, mapa, reportes y moderación dependen del backend: desplegarlo en AWS junto a la BD |
 | Valhalla sin memoria en host gratuito | Mantener Valhalla en LAN; documentar el despliegue del backend con VALHALLA_URL local |

@@ -25,6 +25,49 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## Base de datos — PostgreSQL en AWS RDS
+
+El backend es la **única** puerta a la BD (`omnitravel_db` en AWS RDS, con
+PostGIS). Conexión con TypeORM en `src/app.module.ts` (`synchronize: false`:
+las tablas ya existen y no se modifican desde el código).
+
+Variables en `backend/.env` (plantilla en `.env.example`):
+
+| Variable | Uso |
+|---|---|
+| `DATABASE_URL` | `postgresql://USUARIO:CONTRASEÑA@HOST.rds.amazonaws.com:5432/omnitravel_db` |
+| `DB_SSL` | `true` para RDS |
+| `JWT_SECRET` | firma de los tokens de sesión |
+| `EVIDENCIAS_DIR` | carpeta de fotos (temporal hasta S3; por defecto `uploads/evidencia`) |
+
+Migraciones SQL aditivas en `sql/` (ej. `001-reporte-es-critico.sql`).
+
+### Endpoints
+
+| Método | Ruta | Acceso | Uso |
+|---|---|---|---|
+| `POST` | `/auth/register` | público | Crear cuenta (rol viajero) → `{ token, usuario }` |
+| `POST` | `/auth/login` | público | Iniciar sesión → `{ token, usuario }` |
+| `GET` | `/mapa` | público | POIs, catálogo, valores, reportes y confirmaciones |
+| `GET` | `/pois/:id/reporte-activo` | público | Reporte vigente del POI con su conteo |
+| `POST` | `/reportes` | JWT | Crear reporte (lugar nuevo o actualización) |
+| `POST` | `/reportes/:id/confirmaciones` | JWT | Confirmar; la 3.ª confirmación publica |
+| `GET` | `/moderacion/reportes?estado=` | JWT moderador | Consola M03/M04 |
+| `POST` | `/moderacion/reportes/:id/decision` | JWT moderador | Aprobar/rechazar con motivo (tabla `moderacion`) |
+| `POST` | `/evidencias` | JWT | Subir foto `{ base64, mimeType }` (JPG/PNG/WEBP ≤ 5 MB) |
+| `GET` | `/evidencias/archivo/:usuario/:archivo` | público | Leer foto |
+
+Los errores de negocio llegan como `message: "CODIGO: mensaje"` (ej.
+`AUTOCONFIRMACION: No puedes confirmar tu propio reporte.`).
+
+### Copiar los datos desde Supabase
+
+```bash
+# en backend/.env agrega SUPABASE_DB_URL (y SUPABASE_URL para las fotos)
+node --env-file=.env scripts/copiar-supabase-a-aws.mjs --simular
+node --env-file=.env scripts/copiar-supabase-a-aws.mjs --reemplazar
+```
+
 ## API OmniTravel — `POST /routes` (Proceso 2)
 
 Ruteo peatonal accesible contra Valhalla. Contrato y decisiones en

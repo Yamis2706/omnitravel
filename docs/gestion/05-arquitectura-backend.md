@@ -7,7 +7,7 @@ Ecosistema con **cliente móvil multirol y backend core separados**. No adoptar 
 App móvil (React Native + Expo, iOS/Android)
   │  HTTPS/REST + JWT                 │  HTTPS (S3 presigned)          │  SDK de mapas
   ▼                                   ▼                                ▼
-Backend NestJS  ──────────────► PostgreSQL + PostGIS (docker)
+Backend NestJS  ──────────────► PostgreSQL + PostGIS (AWS RDS)
   │   │
   │   └──────────────► Valhalla (docker, :8002)  ← ruteo peatonal accesible
   ├────► AWS S3 (evidencia fotográfica)
@@ -23,7 +23,7 @@ src/
 ├── common/                       # filtros de excepción, interceptores, DTO comunes
 │   └── exception/                # formato de error `Error` y códigos estables
 ├── security/                     # guards JWT, RBAC por rol, decoradores, extracción de identidad
-├── auth/                         # registro, login, sesión (JWT Supabase o backend; ver ADR-007)
+├── auth/                         # registro, login, sesión (JWT propio del backend, bcrypt; ver ADR-007)
 ├── users/                        # perfiles públicos (sin datos sensibles), roles, estados
 ├── pois/                         # catálogo POI, búsqueda por bounding box (GeoJSON), detalle
 ├── accessibility/                # catálogo de características y valores vigentes por POI
@@ -44,10 +44,10 @@ Módulos con `@Module` por dominio; servicio y controlador separados; DTO con `c
 - Storage: la app sube evidencia a S3 con credenciales presignadas de corta duración; el backend valida tipo/tamaño antes de emitirlas y registra los metadatos.
 
 ## Persistencia
-- PostgreSQL 17 + PostGIS 3.5 (`postgis/postgis:17-3.5` en `docker-compose.yml`; base `omnitravel`, usuario `omnitravel`; puerto 5432). SRID 4326 e índices GIST para todo lo geoespacial (RNF-04).
+- PostgreSQL + PostGIS en **AWS RDS** (base `omnitravel_db`, puerto 5432, conexión con SSL). El backend es la única puerta a la BD: la app nunca se conecta directamente. SRID 4326 e índices GIST para todo lo geoespacial (RNF-04). El `postgis/postgis:17-3.5` de `docker-compose.yml` queda solo como opción local de desarrollo.
 - ORM del framework con operaciones ordinarias y SQL espacial selectiva encapsulada (índices GIST, `ST_DWithin`, `ST_Intersects`).
-- Configuración por variables de entorno desde un archivo `.env` no versionado (`DATABASE_URL`, credenciales de S3, claves JWT/Supabase, token de push). Nunca credenciales en el repositorio.
-- Sin migraciones versionadas por ahora [decisión pendiente ADR]; cuando el esquema se formalice, adoptarlas (p. ej. TypeORM migrations) y validar colisiones con el esquema del proyecto Supabase compartido.
+- Configuración por variables de entorno desde un archivo `.env` no versionado (`DATABASE_URL` de AWS RDS, `DB_SSL`, `JWT_SECRET`, credenciales de S3, token de push). Nunca credenciales en el repositorio.
+- Migraciones SQL aditivas e idempotentes en `backend/sql/` (TypeORM con `synchronize: false`). Los datos del proyecto Supabase anterior se copian con `backend/scripts/copiar-supabase-a-aws.mjs`.
 - El backend **no persiste** datos sensibles de discapacidad (RNF-07): el cliente los guarda localmente y envía solo parámetros de restricción anónimos y temporales.
 
 ## Motor de ruteo (Valhalla)
@@ -68,4 +68,4 @@ Módulos con `@Module` por dominio; servicio y controlador separados; DTO con `c
 ## Despliegue
 - Local: `docker-compose.yml` (PostGIS + Valhalla) + `npx expo start` para la app.
 - App: distribución y OTA updates con EAS (builds en la nube, no requiere Xcode/Android Studio locales); configuración nativa solo vía `app.json` y config plugins (CNG).
-- Backend/BD: confirmar proveedor cloud (el material del curso menciona AWS S3 y servicios gestionados; el pipeline CI/CD queda pendiente de un ADR cuando el equipo lo apruebe).
+- Backend/BD: la BD ya está en AWS RDS; el backend se desplegará en AWS y la evidencia pasará del disco del backend a S3. El pipeline CI/CD queda pendiente de un ADR.

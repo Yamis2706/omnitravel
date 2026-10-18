@@ -1,5 +1,7 @@
 # 11. Conexión del front móvil a la BD del equipo (Supabase OmniTravel)
 
+> **Documento histórico.** Desde 2026-10-18 la BD de OmniTravel está en **AWS RDS** y la app ya no usa Supabase: todo pasa por el backend NestJS. Los scripts SQL de esta carpeta se conservan como referencia de la lógica que se migró al backend (`backend/src/reportes/`).
+
 > Informe del equipo de front para **Sara (equipo de datos)** y el resto del
 > equipo. Fecha de verificación en vivo: **2026-10-17**. El front móvil ya
 > está configurado contra el proyecto **"sarafaustino's Project"**

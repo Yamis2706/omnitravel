@@ -3,7 +3,7 @@
 > Propuesta derivada de la Definición del Proyecto (procesos 1–3), los UI Mockups (U01–U12, M01–M07, S01–S02) y el estado del código actual (app Expo con mocks tipados y `POST /routes`). Los identificadores son propuestos; cuando exista una matriz oficial de requisitos del curso, se sustituyen por aquellos IDs y este documento pasa a resumir el contrato. Marcar [PENDIENTE] lo que requiera aprobación del equipo.
 
 ## Usuarios y perfiles (U)
-- `U1`: registrar cuenta (viajero con discapacidad, colaborador comunitario o establecimiento turístico) con aceptación obligatoria de la política de tratamiento de datos (Ley 1581 de 2012). El registro de pasajeros actúa sobre el proyecto Supabase compartido mientras no exista backend propio.
+- `U1`: registrar cuenta (viajero con discapacidad, colaborador comunitario o establecimiento turístico) con aceptación obligatoria de la política de tratamiento de datos (Ley 1581 de 2012). El registro se hace en el backend (`POST /auth/register`), que guarda la cuenta en la BD de AWS RDS.
 - `U2`: autenticación por correo/credenciales devolviendo JWT; la sesión se guarda cifrada en el dispositivo (expo-secure-store) con expiración máxima de 24 horas (RNF-08). Los moderadores usan dominio corporativo `@omnitravel.edu.co` (M01), que activa el Módulo Administrador/Moderador.
 - `U3`: consultar perfil propio (datos no sensibles) y cerrar sesión.
 - `U4`: configurar el perfil de accesibilidad (tipo de discapacidad: motriz o sensorial, preferencias de filtro y necesidades) en un flujo simple (≤ 3 pantallas / 5 interacciones, RNF-13). Los datos de tipo/grado de discapacidad solo se guardan en el dispositivo (RNF-07); el backend recibe únicamente parámetros de restricción anónimos para las rutas.

@@ -10,14 +10,14 @@ OmniTravel es un ecosistema digital colaborativo de turismo accesible. Centraliz
 - `MODERADOR`: audita reportes, gestiona incidencias críticas, resuelve discrepancias comunitarias y aplica reglas de calidad de datos geoespaciales. Accede al Módulo Administrador/Moderador con credenciales corporativas `@omnitravel.edu.co`.
 - `ADMIN`: administración general de la plataforma, políticas de privacidad y seguridad de datos sensibles. Comparte el módulo de moderación.
 
-> Nombres de roles del contrato: `VIAJERO_ADI`, `COLABORADOR`, `ESTABLECIMIENTO`, `MODERADOR`, `ADMIN`. Debe resolverse primero la discrepancia del esquema Supabase compartido (ver abajo), donde la tabla `usuarios` actual usa roles de transporte (`estudiante`, `pasajero`, `admin`, `superadmin`) que no corresponden al dominio OmniTravel.
+> Nombres de roles del contrato: `VIAJERO_ADI`, `COLABORADOR`, `ESTABLECIMIENTO`, `MODERADOR`, `ADMIN`. La discrepancia con el esquema Supabase compartido (roles de transporte) quedó resuelta: la BD en AWS RDS usa el catálogo `rol` de OmniTravel (viajero, colaborador, establecimiento, moderador, administrador).
 
 ## Plataforma y arquitectura
 - Cliente único multirol: aplicación móvil React Native (Expo SDK 57) para iOS/Android, con Módulo Viajero/Comunidad y Módulo Administrador/Moderador segmentados por rol (pantallas U01–U12, M01–M07, modales S01/S02).
 - Backend: NestJS con API REST versionada bajo `/api/v1`; procesa reglas de negocio, consenso comunitario y ruteo accesible.
 - Persistencia: PostgreSQL 17 con PostGIS 3.5 (geoespacial, SRID 4326, índices GIST). Infraestructura local en `docker-compose.yml` (`omnitravel-postgres`, puerto 5432).
 - Motor de ruteo: Valhalla auto-hospedado en Docker (`omnitravel-valhalla`, puerto 8002), invocado por el backend; el cliente móvil jamás llama a Valhalla directamente. Hoy el backend usa `costing: 'auto'`; corresponde `pedestrian`/`wheelchair` con reglas de barreras (pendiente de incorporar).
-- Autenticación: JWT. Estado actual: Supabase Auth (proyecto compartido con el front web del equipo); objetivo (C4/RNF-06): autenticación centralizada en el backend. La sesión se almacena cifrada en el dispositivo (expo-secure-store).
+- Autenticación: JWT emitido por el backend NestJS (cuentas en la tabla `usuario` de la BD en AWS RDS, contraseñas bcrypt), conforme al C4/RNF-06. La sesión se almacena cifrada en el dispositivo (expo-secure-store).
 - Datos sensibles del perfil de accesibilidad: se almacenan exclusivamente en el dispositivo (Async Storage / Secure Storage); el backend no persiste diagnósticos ni tipo/grado de discapacidad (RNF-07).
 - Servicios externos: Mapbox/OpenStreetMap (cartografía base), AWS S3 (evidencia fotográfica), servicio de notificaciones push.
 
@@ -33,7 +33,7 @@ OmniTravel es un ecosistema digital colaborativo de turismo accesible. Centraliz
 - Optimización de rutas vehiculares (el alcance es exclusivamente peatonal).
 
 ## Discrepancias a resolver
-1. El proyecto Supabase compartido expone una tabla `usuarios` con campos de transporte (viaje, parada, asiento, abordo) y roles ajenos al dominio (`estudiante`, `pasajero`, `superadmin`). OmniTravel requiere su propio esquema o une proyecto separado; el MER de este paquete es la propuesta para ese esquema.
+1. El proyecto Supabase compartido expone una tabla `usuarios` con campos de transporte (viaje, parada, asiento, abordo) y roles ajenos al dominio (`estudiante`, `pasajero`, `superadmin`). OmniTravel requiere su propio esquema o une proyecto separado; el MER de este paquete es la propuesta para ese esquema. **Resuelto (2026-10-18):** la BD de OmniTravel es PostgreSQL + PostGIS en AWS RDS (`omnitravel_db`) con esquema propio, y la app ya no usa Supabase.
 2. El backend consume Valhalla con `costing: 'auto'`; el requisito (RNF-21, RNF-26) exige rutas peatonales que excluyan barreras críticas. Definir el perfil de ruteo y el mecanismo de exclusión de segmentos con barreras antes de avanzar.
 3. El modelo físico del diseño de BD declara 16 tablas; validar la propuesta del documento 04 contra ese modelo cuando esté disponible.
 4. El catálogo de notificaciones push (U11) no tiene contrato aprobado; no implementar endpoints de notificaciones hasta aprobarlo.
