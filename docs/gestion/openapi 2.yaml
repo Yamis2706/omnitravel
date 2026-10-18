@@ -1,0 +1,540 @@
+openapi: 3.0.3
+info:
+  title: OmniTravel API
+  version: 0.1.0
+  description: |
+    BORRADOR (x-status: BORRADOR) del contrato REST del backend NestJS de OmniTravel.
+    Derivado de docs/gestion/07-contrato-api.md. No se aprueba como fuente normativa
+    hasta la validación del equipo. Convenciones: errores con `code` estable (inglés)
+    y `message` de presentación en español; datos sensibles de discapacidad nunca
+    viajan en el payload (RNF-07).
+  x-status: BORRADOR
+  x-outline: docs/gestion/07-contrato-api.md
+servers:
+  - url: http://localhost:3000/api/v1
+tags:
+  - name: auth
+  - name: users
+  - name: pois
+  - name: reports
+  - name: routes
+  - name: feedback
+  - name: moderation
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    bbox:
+      in: query
+      name: bbox
+      required: true
+      description: 'Bounding box [minLon, minLat, maxLon, maxLat] en WGS-84.'
+      schema:
+        type: array
+        items: { type: number, format: double }
+        minItems: 4
+        maxItems: 4
+    poisFilters:
+      in: query
+      name: filters
+      required: false
+      description: 'Filtros de accesibilidad en formato clave=valor repetible (p. ej. caracteristicas=tiene_rampa,ancho_puerta>=90).'
+      schema: { type: string }
+    poiId:
+      in: path
+      name: id
+      required: true
+      description: 'Identificador UUID del POI.'
+      schema: { type: string, format: uuid }
+    reportId:
+      in: path
+      name: id
+      required: true
+      description: 'Identificador UUID del reporte.'
+      schema: { type: string, format: uuid }
+    incidentId:
+      in: path
+      name: id
+      required: true
+      description: 'Identificador UUID de la incidencia.'
+      schema: { type: string, format: uuid }
+  schemas:
+    Error:
+      type: object
+      required: [timestamp, status, code, message, details, path]
+      properties:
+        timestamp: { type: string, format: date-time }
+        status: { type: integer }
+        code:
+          type: string
+          enum: [VALIDATION_ERROR, UNAUTHENTICATED, TOKEN_EXPIRED, INVALID_CREDENTIALS, USER_INACTIVE, ACCESS_DENIED, NOT_FOUND, EMAIL_ALREADY_REGISTERED, DATA_POLICY_NOT_ACCEPTED, DUPLICATE_POI, DUPLICATE_CONFIRMATION, SELF_CONFIRMATION, ALREADY_PUBLISHED, REPORT_ALREADY_RESOLVED, FILE_REJECTED, ALREADY_REVIEWED, TOO_EARLY, ROUTE_ENGINE_ERROR, BARRIER_BLOCKED, INVALID_STATE, INTERNAL_ERROR]
+        message: { type: string, description: 'Mensaje de presentación en español.' }
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+        path: { type: string }
+    ErrorDetail:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string }
+        message: { type: string }
+    Caracteristica:
+      type: object
+      required: [id, nombre, tipoValor, icono]
+      properties:
+        id: { type: string, example: tiene_rampa }
+        nombre: { type: string }
+        descripcion: { type: string }
+        tipoValor: { type: string, enum: [BOOLEANO, NUMERICO, TEXTO] }
+        unidad: { type: string, example: cm }
+        icono: { type: string }
+    ValorAccesibilidad:
+      type: object
+      required: [caracteristicaId]
+      properties:
+        caracteristicaId: { type: string }
+        valorBooleano: { type: boolean }
+        valorNumerico: { type: number, format: double }
+        valorTexto: { type: string }
+    Experiencia:
+      type: object
+      required: [autor, perfil, calificacion, comentario]
+      properties:
+        autor: { type: string }
+        perfil: { type: string, description: 'Percepción declarada, p. ej. "Movilidad reducida". Sin datos sensibles.' }
+        calificacion: { type: integer, minimum: 1, maximum: 5 }
+        comentario: { type: string }
+    PoiFeature:
+      type: object
+      description: 'GeoJSON Feature con Point.'
+      properties:
+        type: { type: string, enum: [Feature] }
+        geometry:
+          type: object
+          properties:
+            type: { type: string, enum: [Point] }
+            coordinates: { type: array, items: { type: number }, minItems: 2, maxItems: 2, description: '[lon, lat] según GeoJSON.' }
+        properties:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            nombre: { type: string }
+            categoria: { type: string }
+            estadoVerificacion: { type: string, enum: [PENDIENTE, EN_REVISION, VERIFICADO] }
+            confirmaciones: { type: integer }
+            calificacion: { type: number, format: double }
+    Poi:
+      type: object
+      required: [id, nombre, categoria, descripcion, direccion, ciudad, latitud, longitud, calificacion, totalExperiencias, confirmaciones, estadoVerificacion, ultimaVerificacion, valores]
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        categoria: { type: string }
+        descripcion: { type: string }
+        direccion: { type: string }
+        ciudad: { type: string }
+        latitud: { type: number, format: double }
+        longitud: { type: number, format: double }
+        calificacion: { type: number, format: double }
+        totalExperiencias: { type: integer }
+        confirmaciones: { type: integer }
+        estadoVerificacion: { type: string, enum: [PENDIENTE, EN_REVISION, VERIFICADO] }
+        ultimaVerificacion: { type: string, format: date-time }
+        valores:
+          type: array
+          items: { $ref: '#/components/schemas/ValorAccesibilidad' }
+        experiencias:
+          type: array
+          items: { $ref: '#/components/schemas/Experiencia' }
+    RouteRequest:
+      type: object
+      required: [origin, destination]
+      properties:
+        origin: { type: array, items: { type: number }, minItems: 2, maxItems: 2, description: '[lat, lon]' }
+        destination: { type: array, items: { type: number }, minItems: 2, maxItems: 2, description: '[lat, lon]' }
+        restrictions:
+          type: object
+          description: 'Parámetros de restricción anónimos y temporales (RNF-07).'
+          properties:
+            avoidStairs: { type: boolean }
+            requireElevator: { type: boolean }
+            preferTexturedFloor: { type: boolean }
+    RouteResponse:
+      type: object
+      description: 'Compatible con Valhalla; warnings adicionales para RNF-27.'
+      properties:
+        trip:
+          type: object
+          properties:
+            summary:
+              type: object
+              properties:
+                length: { type: number, description: 'km' }
+                time: { type: number, description: 'segundos' }
+            legs:
+              type: array
+              items:
+                type: object
+                properties:
+                  shape: { type: string, description: 'Polyline codificada, precisión 6' }
+        warnings:
+          type: array
+          description: 'Tramos con datos de accesibilidad desactualizados (>60 días) o sin verificación (RNF-27).'
+          items:
+            type: object
+            properties:
+              code: { type: string, enum: [STALE_DATA, UNVERIFIED_SEGMENT] }
+              poiId: { type: string, format: uuid }
+              message: { type: string }
+    RegisterRequest:
+      type: object
+      required: [nombre, email, password, rol, acceptedDataPolicy]
+      properties:
+        nombre: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+        rol: { type: string, enum: [VIAJERO_ADI, COLABORADOR, ESTABLECIMIENTO], description: 'Rol al registrar; MODERADOR/ADMIN solo se asignan por el equipo, no por autoregistro.' }
+        telefono: { type: string }
+        departamento: { type: string }
+        municipio: { type: string }
+        acceptedDataPolicy: { type: boolean, description: 'Debe ser true (Ley 1581 de 2012).' }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType, expiresInSeconds]
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, example: Bearer }
+        expiresInSeconds: { type: integer, maximum: 86400 }
+    UserPublic:
+      type: object
+      description: 'Perfil sin datos sensibles; el detalle de accesibilidad vive en el dispositivo.'
+      properties:
+        id: { type: string, format: uuid }
+        nombre: { type: string }
+        email: { type: string, format: email }
+        rol: { type: string, enum: [VIAJERO_ADI, COLABORADOR, ESTABLECIMIENTO, MODERADOR, ADMIN] }
+        telefono: { type: string }
+    CreatePoiReportRequest:
+      type: object
+      required: [nombre, categoria, latitud, longitud]
+      properties:
+        nombre: { type: string }
+        categoria: { type: string }
+        descripcion: { type: string }
+        direccion: { type: string }
+        ciudad: { type: string }
+        latitud: { type: number, format: double }
+        longitud: { type: number, format: double }
+        valores:
+          type: array
+          items: { $ref: '#/components/schemas/ValorAccesibilidad' }
+        evidencias:
+          type: array
+          items: { type: string, description: 'objectKey de S3 previamente cargado con POST /evidences/presign' }
+    ConfirmationRequest:
+      type: object
+      properties:
+        comentario: { type: string }
+    DecisionRequest:
+      type: object
+      required: [accion]
+      properties:
+        accion: { type: string, enum: [APROBADO, RECHAZADO, REVERIFICAR] }
+        motivo: { type: string }
+    ExperienceRequest:
+      type: object
+      required: [poiId, calificacion]
+      properties:
+        poiId: { type: string, format: uuid }
+        calificacion: { type: integer, minimum: 1, maximum: 5 }
+        comentario: { type: string }
+        tipo: { type: string, enum: [VISITA, RUTA] }
+    IncidentRequest:
+      type: object
+      required: [poiId, tipo, descripcion]
+      properties:
+        poiId: { type: string, format: uuid }
+        origenExperienciaId: { type: string, format: uuid }
+        tipo: { type: string, enum: [DISCREPANCIA_INFO, INFRAESTRUCTURA_FALLA, OTRO] }
+        descripcion: { type: string }
+    PresignRequest:
+      type: object
+      required: [contentType, sizeBytes]
+      properties:
+        contentType: { type: string, description: 'Solo image/jpeg, image/png, image/webp' }
+        sizeBytes: { type: integer, description: 'Máximo aprobado por el equipo (pendiente definir).' }
+  responses:
+    BadRequest:
+      description: 'Solicitud inválida.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: 'No autenticado (UNAUTHENTICATED/TOKEN_EXPIRED).'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: 'Rol o alcance insuficiente (ACCESS_DENIED).'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: 'No encontrado.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: 'Conflicto de estado o duplicado.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unprocessable:
+      description: 'Regla de negocio incumplida.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    InternalError:
+      description: 'INTERNAL_ERROR; sin datos internos ni trazas.'
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: 'Registrar cuenta (U1)'
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RegisterRequest' } } }
+      responses:
+        '201': { description: 'Cuenta creada.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: 'Iniciar sesión y obtener JWT (U2)'
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } }
+      responses:
+        '200': { description: 'JWT emitido.', content: { application/json: { schema: { $ref: '#/components/schemas/LoginResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: 'Cerrar sesión (U3)'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: 'Sesión cerrada.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /users/me:
+    get:
+      tags: [users]
+      summary: 'Perfil propio (U4a)'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 'Perfil público sin datos sensibles.', content: { application/json: { schema: { $ref: '#/components/schemas/UserPublic' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [users]
+      summary: 'Actualizar perfil básico (U4b)'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UserPublic' } } }
+      responses:
+        '200': { description: 'Perfil actualizado.', content: { application/json: { schema: { $ref: '#/components/schemas/UserPublic' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /pois:
+    get:
+      tags: [pois]
+      summary: 'POI por bounding box con filtros (P1/P2), GeoJSON'
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/bbox'
+        - $ref: '#/components/parameters/poisFilters'
+      responses:
+        '200': { description: 'FeatureCollection de POI.', content: { application/geo+json: { schema: { type: object, properties: { type: { type: string, enum: [FeatureCollection] }, features: { type: array, items: { $ref: '#/components/schemas/PoiFeature' } } } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [pois]
+      summary: 'Crear POI con reporte inicial (C1); estado PENDIENTE_VALIDACION'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreatePoiReportRequest' } } }
+      responses:
+        '201': { description: 'POI creado; Location apunta a /pois/{id}.', content: { application/json: { schema: { $ref: '#/components/schemas/Poi' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /pois/{id}:
+    get:
+      tags: [pois]
+      summary: 'Detalle del POI (P3)'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/poiId' }]
+      responses:
+        '200': { description: 'Ficha de accesibilidad.', content: { application/json: { schema: { $ref: '#/components/schemas/Poi' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /pois/{id}/reports:
+    post:
+      tags: [reports]
+      summary: 'Reportar actualización/accesibilidad con evidencia (C2)'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/poiId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreatePoiReportRequest' } } }
+      responses:
+        '201': { description: 'Reporte creado en PENDIENTE_VALIDACION.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /pois/{id}/confirmations:
+    post:
+      tags: [reports]
+      summary: 'Confirmar accesibilidad (C3); 3 confirmaciones publican'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/poiId' }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { $ref: '#/components/schemas/ConfirmationRequest' } } }
+      responses:
+        '201': { description: 'Confirmación registrada; puede disparar PUBLICADO.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /pois/{id}/experiences:
+    get:
+      tags: [feedback]
+      summary: 'Experiencias del POI (F4)'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/poiId' }]
+      responses:
+        '200': { description: 'Listado paginado.', content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Experiencia' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /evidences/presign:
+    post:
+      tags: [reports]
+      summary: 'URL presignada S3 para evidencia (C2b); valida MIME/tamaño (RNF-29)'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PresignRequest' } } }
+      responses:
+        '201': { description: 'URL y objectKey de S3.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+  /reports/{id}/denuncias:
+    post:
+      tags: [reports]
+      summary: 'Denunciar por falsedad/spam (C4)'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/reportId' }]
+      responses:
+        '201': { description: 'Denuncia registrada; activa vía B de moderación.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /routes:
+    post:
+      tags: [routes]
+      summary: 'Calcular ruta peatonal accesible (RT1) vía Valhalla'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RouteRequest' } } }
+      responses:
+        '200': { description: 'Ruta con warnings.', content: { application/json: { schema: { $ref: '#/components/schemas/RouteResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /experiences:
+    post:
+      tags: [feedback]
+      summary: 'Registrar retroalimentación post-viaje (F1/F2)'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ExperienceRequest' } } }
+      responses:
+        '201': { description: 'Experiencia registrada; dispara proceso 3.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /incidents:
+    post:
+      tags: [feedback]
+      summary: 'Reportar discrepancia → re-verificación trazable (F3)'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/IncidentRequest' } } }
+      responses:
+        '201': { description: 'Incidencia creada y escalada al proceso 1.' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /moderation/dashboard:
+    get:
+      tags: [moderation]
+      summary: 'Métricas e incidencias (A2, M02)'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 'Métricas del moderador.' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /moderation/reports:
+    get:
+      tags: [moderation]
+      summary: 'Listado de reportes con filtros (A3, M03)'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 'Listado paginado.' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /moderation/reports/{id}:
+    get:
+      tags: [moderation]
+      summary: 'Detalle para moderar (A4, M04)'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/reportId' }]
+      responses:
+        '200': { description: 'Detalle del reporte con evidencias y denuncias.' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /moderation/reports/{id}/decision:
+    post:
+      tags: [moderation]
+      summary: 'Decisión ejecutiva del moderador (A4b, M05); sobre-escribe el consenso'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/reportId' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DecisionRequest' } } }
+      responses:
+        '200': { description: 'Decisión registrada y auditada (RNF-30).' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /moderation/incidents/{id}:
+    patch:
+      tags: [moderation]
+      summary: 'Resolver/escalar incidencia (A6b, M06)'
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/incidentId' }]
+      responses:
+        '200': { description: 'Incidencia actualizada.' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
