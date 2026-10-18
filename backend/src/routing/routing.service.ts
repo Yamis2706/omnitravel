@@ -15,12 +15,12 @@ export class RoutingService {
         const requestBody = {
             locations: [
                 {
-                    lat: origin[0],
-                    lon: origin[1],
+                    lat: origin[1],
+                    lon: origin[0],
                 },
                 {
-                    lat: destination[0],
-                    lon: destination[1],
+                    lat: destination[1],
+                    lon: destination[0],
                 },
             ],
             costing: 'auto',
