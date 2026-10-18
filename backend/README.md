@@ -1,118 +1,280 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# OmniTravel Backend — Guía de integración para frontend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+**Versión documentada:** rama `main`, commit `4b8f0fb`. Esta guía se basa en los controladores, DTO y servicios del backend publicados en el repositorio. Los ejemplos de datos son ilustrativos salvo donde se indica una respuesta previamente verificada.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 1. Arquitectura
 
-## Description
+Backend construido con NestJS y TypeScript.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+| Módulo | Responsabilidad |
+|---|---|
+| `health` | Comprobación básica del servicio. |
+| `auth` | Validación del access token de Supabase. |
+| `authorization` | Protección de operaciones por rol. |
+| `users` | Datos del usuario autenticado. |
+| `pois` | Listado, búsqueda y consultas geográficas de puntos de interés. |
+| `reports` | Crear/listar/consultar reportes y registrar confirmaciones. |
+| `routing` | Cálculo de rutas a través de Valhalla. |
+| `database` | Pool PostgreSQL y diagnóstico restringido a administradores. |
 
-## Project setup
+Archivos centrales: `src/main.ts` (inicio, validación y Swagger), `src/app.module.ts` (módulos), `src/database/database.service.ts` (PostgreSQL), `src/auth/supabase-auth.service.ts` (autenticación).
 
-```bash
-$ npm install
+## 2. Instalación y ejecución
+
+Desde la raíz del repositorio:
+
+```powershell
+cd backend
+npm install
+Copy-Item .env.example .env
 ```
 
-## Compile and run the project
+Edita `backend/.env` con los valores de tu entorno. No subas `.env` a Git.
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```powershell
+npm run start:dev
+npm run build
+npm test -- --runInBand
 ```
 
-## Run tests
+URL local habitual: `http://localhost:3000`. Swagger: `http://localhost:3000/api/docs`. El puerto se configura con `PORT` y por defecto es `3000`.
 
-```bash
-# unit tests
-$ npm run test
+## 3. Variables de entorno
 
-# e2e tests
-$ npm run test:e2e
+| Variable | Uso |
+|---|---|
+| `PORT` | Puerto HTTP; predeterminado `3000`. |
+| `DB_HOST`, `DB_PORT` | Host y puerto PostgreSQL; puerto predeterminado `5432`. |
+| `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE` | Credenciales y base de datos. La contraseña es secreta. |
+| `DB_SSL` | Activa SSL cuando es `true`; por defecto está desactivado. |
+| `DB_SSL_CA` | Ruta opcional a certificado CA, resuelta desde `process.cwd()`. |
+| `VALHALLA_URL` | URL de Valhalla; predeterminada `http://localhost:8002`. |
+| `SUPABASE_URL` | URL del proyecto Supabase. |
+| `SUPABASE_ANON_KEY` | Clave pública `anon`/publishable para consultar Supabase Auth. No usar service-role. |
 
-# test coverage
-$ npm run test:cov
+`DB_SSL` y `DB_SSL_CA` son admitidas por el código, aunque no aparecen en `.env.example`. Los nombres `postgres` y `valhalla` suelen corresponder a servicios de Docker; en ejecución local usa hosts accesibles desde tu máquina.
+
+## 4. Autenticación
+
+Los endpoints de usuarios, POI, reportes, rutas y diagnóstico de base de datos requieren un access token válido de Supabase:
+
+```http
+Authorization: Bearer <SUPABASE_ACCESS_TOKEN>
 ```
 
-## Deployment
+Ejemplo:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```typescript
+const response = await fetch("http://localhost:3000/users/me", {
+  headers: { Authorization: `Bearer ${accessToken}` },
+});
+if (!response.ok) throw new Error(`HTTP ${response.status}`);
+const user = await response.json();
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+El backend valida el token consultando `SUPABASE_URL/auth/v1/user`, después relaciona el UUID de Supabase con `public.usuario.auth_user_id`. La cuenta debe estar vinculada y tener `estado_cuenta = 'activo'`. El `id_usuario` interno no es necesariamente el UUID de Supabase. Para crear reportes y confirmaciones, el backend deriva el usuario del token; el frontend no debe enviar un ID de usuario para esas operaciones.
 
-## Observability
+## 5. Endpoints
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+Base URL local: `http://localhost:3000`. Excepto indicación contraria, las rutas de esta sección requieren Bearer token.
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+### Salud
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+`GET /health` — comprobación básica. En pruebas previas respondió `{"status":"ok"}`.
 
-This project is already instrumented. Create a free account at [observe.nestjs.com](https://observe.nestjs.com), add an application, and paste the generated app key and secret into the `ObserveModule.forRoot()` call in `src/app.module.ts`.
+### Usuario actual
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+`GET /users/me`
 
-## Resources
+Respuesta de ejemplo:
 
-Check out a few resources that may come in handy when working with NestJS:
+```json
+{
+  "id_usuario": "3",
+  "email": "viajero1@omnitravel.test",
+  "estado_cuenta": "activo",
+  "rol_id": "1",
+  "nombre_rol": "viajero"
+}
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### Puntos de interés
 
-## Support
+`GET /pois?tipo=museo&search=parque&page=1&limit=10`
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+Parámetros opcionales:
+- `tipo`: filtro por tipo.
+- `search`: búsqueda parcial por nombre.
+- `page`: página positiva; predeterminado `1`.
+- `limit`: registros por página, de `1` a `100`; predeterminado `10`.
 
-## Stay in touch
+Solo se devuelven POI con estado `publicado`. La respuesta tiene `data` y `meta`:
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```json
+{
+  "data": [
+    {
+      "id_poi": 1,
+      "nombre": "Nombre del lugar",
+      "descripcion": "Descripción",
+      "tipo": "museo",
+      "direccion": "Dirección",
+      "ubicacion": {
+        "type": "Point",
+        "coordinates": [-75.673, 4.535]
+      },
+      "estado": "publicado"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "totalPages": 1
+  }
+}
+```
 
-## License
+Campos ilustrativos; el objeto real incluye también fechas de creación/actualización. `ubicacion` se serializa como GeoJSON y las coordenadas están en orden `[longitud, latitud]`.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+`GET /pois/:id` — detalle de un POI publicado. Si no existe/no está publicado, responde `404`.
+
+`GET /pois/nearby?lat=4.535&lon=-75.673&radio=5000&page=1&limit=10`
+
+- `lat`: obligatorio, entre -90 y 90.
+- `lon`: obligatorio, entre -180 y 180.
+- `radio`: metros, de 1 a 50000; predeterminado `5000`.
+- `page`: predeterminado `1`.
+- `limit`: entre 1 y 100; predeterminado `10`.
+
+Devuelve la misma estructura paginada y añade `distancia_metros` a cada POI; `meta` incluye `radio`. El orden es por distancia ascendente.
+
+### Reportes
+
+`GET /reports?page=1&limit=10` — listado paginado. `page` predeterminado `1`; `limit` predeterminado `10`, máximo `100`.
+
+`GET /reports/:id` — detalle por ID positivo. El formato no numérico puede producir `400`; un reporte inexistente produce `404`.
+
+`POST /reports` — crea un reporte. El usuario se obtiene del token.
+
+```json
+{
+  "poi_id": 12,
+  "tipo": "obstruccion",
+  "descripcion": "El acceso principal está bloqueado."
+}
+```
+
+Validaciones: `poi_id` entero positivo; `tipo` texto obligatorio de máximo 100 caracteres; `descripcion` opcional de máximo 2000 caracteres.
+
+`POST /reports/:id/confirmations` — registrar un voto sobre un reporte:
+
+```json
+{ "tipo_confirmacion": "confirma" }
+```
+
+`tipo_confirmacion` admite solamente `confirma` o `refuta`. Regla de negocio verificada: cada usuario puede votar una sola vez por reporte y el primer voto es definitivo. El segundo voto devuelve `409 Conflict` con el mensaje `Ya has confirmado o refutado este reporte. Tu primer voto es definitivo.`. Si el reporte no existe, devuelve `404`.
+
+La forma completa de las respuestas de reportes depende de `ReportsService` y del esquema vigente; consultar Swagger o la implementación cuando se necesiten todos sus campos.
+
+### Rutas
+
+`POST /routes`
+
+```json
+{
+  "origin": [-75.673, 4.535],
+  "destination": [-75.6803, 4.5355]
+}
+```
+
+Cada coordenada es exactamente `[longitud, latitud]`; longitud entre -180 y 180, latitud entre -90 y 90. El backend convierte las coordenadas a `lat`/`lon`, llama a Valhalla con `costing: "auto"` y `units: "kilometers"` y devuelve el JSON del servicio. La estructura de respuesta depende de Valhalla.
+
+### Diagnóstico de base de datos
+
+`GET /database/diagnostic` — requiere el rol `administrador`. Devuelve estado y versiones de PostgreSQL/PostGIS. No debe exponerse como operación pública.
+
+## 6. Validación y errores
+
+`main.ts` aplica `ValidationPipe` global con:
+- `whitelist: true`: elimina propiedades sin validadores DTO.
+- `forbidNonWhitelisted: true`: rechaza propiedades adicionales.
+- `transform: true`: transforma los datos a instancias DTO.
+
+Códigos comunes: `200` éxito, `201` creación, `400` datos inválidos, `401` token ausente/inválido o cuenta no autorizada, `403` permisos insuficientes, `404` recurso inexistente, `409` conflicto de negocio, `500` error interno, `503` dependencia no disponible. La forma de error puede incluir `statusCode`, `message` y `error`; el cliente debe revisar `response.ok`/`status` y no depender solo del texto.
+
+Nota de implementación: aunque Swagger documenta `503` para indisponibilidad de Valhalla, el `RoutingService` actual convierte los fallos de comunicación y las respuestas HTTP no exitosas de Valhalla en `InternalServerErrorException`. Verificar este comportamiento si el frontend necesita distinguir `500` y `503`.
+
+## 7. Cliente TypeScript reutilizable
+
+```typescript
+const API_BASE_URL = "http://localhost:3000";
+
+export async function apiFetch<T>(
+  path: string,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...init.headers,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = body?.message ?? `HTTP ${response.status}`;
+    throw new Error(Array.isArray(message) ? message.join(", ") : String(message));
+  }
+  return body as T;
+}
+```
+
+Ejemplo:
+
+```typescript
+const me = await apiFetch("/users/me", accessToken);
+const pois = await apiFetch(
+  "/pois?search=parque&page=1&limit=10",
+  accessToken,
+);
+const route = await apiFetch("/routes", accessToken, {
+  method: "POST",
+  body: JSON.stringify({
+    origin: [-75.673, 4.535],
+    destination: [-75.6803, 4.5355],
+  }),
+});
+```
+
+## 8. Pruebas y Swagger
+
+- Swagger: `http://localhost:3000/api/docs`.
+- Compilar: `npm run build`.
+- Pruebas: `npm test -- --runInBand`.
+- Cobertura: `npm run test:cov`.
+
+Para probar rutas protegidas en Swagger, pulsa **Authorize** y pega el access token de Supabase.
+
+## 9. Reglas para el frontend
+
+1. Coordenadas siempre en orden `[longitud, latitud]`, no `[latitud, longitud]`.
+2. Adjuntar el access token vigente a cada petición protegida.
+3. No enviar `usuario_id` para operaciones que derivan la identidad del token.
+4. Usar `meta.total` y `meta.totalPages` para paginación cuando existan.
+5. Tratar `409` al votar como un voto ya registrado; no reintentar automáticamente.
+6. Manejar errores de red y de servicios externos como fallos recuperables.
+7. No incluir `.env`, tokens, contraseñas ni claves service-role en el frontend ni en commits.
+8. Los controles visuales de rol no sustituyen la autorización del backend.
+
+## 10. Pendientes para una especificación exhaustiva
+
+- Documentar todos los campos de respuesta de reportes directamente desde `ReportsService` y el esquema actual.
+- Definir el tipo TypeScript de la respuesta de Valhalla que consumirá la UI.
+- Completar el flujo de login/sesión del frontend y los contratos exactos de health.
+- Documentar catálogos permitidos para `tipo` de reporte si el dominio define uno cerrado.
+
+Actualizar esta guía junto con los DTO, controladores y pruebas cuando cambie el contrato de la API.
