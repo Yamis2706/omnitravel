@@ -3,7 +3,7 @@
     "name": "OmniTravel",
     "slug": "omnitravel",
     "scheme": "omnitravel",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -27,7 +27,15 @@
     "plugins": [
       "expo-secure-store",
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "OmniTravel usa tus fotos para adjuntar evidencia de accesibilidad de los lugares.",
+          "cameraPermission": "OmniTravel usa la cámara para capturar evidencia de accesibilidad de los lugares.",
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }

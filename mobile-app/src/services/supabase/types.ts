@@ -1,59 +1,63 @@
 /**
- * Tipos del esquema Supabase del proyecto OmniTravel.
+ * Tipos del esquema OmniTravel en Supabase (proyecto de la BD del equipo).
  *
- * Reflejan las columnas de la tabla `usuarios` (ver front web del equipo).
- * Se usan en el servicio de autenticación/pasajeros sin perder el tipado
- * estricto del front.
+ * Reflejan las tablas reales verificadas en el proyecto
+ * "sarafaustino's Project" (org OmniTravel, ref `scpwrozsjpittiypvwxj`):
+ * `usuario`, `rol`, `poi`, `caracteristica_accesibilidad`,
+ * `valor_accesibilidad_poi`, `retroalimentacion`, entre otras.
+ *
+ * Nota de dominio: los roles dejaron de ser los del front web de transporte
+ * (`estudiante`/`pasajero`/`superadmin`); corresponden al catálogo OmniTravel
+ * del doc ADR-007 (viajero, colaborador, establecimiento, moderador,
+ * administrador).
  */
 
-export type RolUsuario = 'estudiante' | 'pasajero' | 'admin' | 'superadmin';
+export type Rol =
+  'viajero' | 'colaborador' | 'establecimiento' | 'moderador' | 'administrador';
 
-export type EstadoAprobacion = 'pendiente' | 'aprobado' | 'rechazado';
+export type EstadoCuenta = 'activo' | 'suspendido';
 
-export type EstadoViajeUsuario =
-  'ninguno' | 'asignado' | 'asistencia_cancelada';
-
-/** Fila de la tabla `usuarios`. */
-export interface UsuarioSupabase {
-  id: string;
-  rol: RolUsuario;
-  nombre_completo: string | null;
-  telefono: string | null;
-  dni: string | null;
-  es_menor: boolean;
-  fecha_nacimiento: string | null;
-  codigo_pasajero: string | null;
-  email: string | null;
-  password: string | null;
-  foto_perfil: string | null;
-  face_descriptor: unknown | null;
-  departamento: string | null;
-  municipio: string | null;
-  direccion: string | null;
-  estado_aprobacion: EstadoAprobacion | null;
-  viaje_id: string | null;
-  creado_en: string;
-  parada_id: string | null;
-  asiento: string | null;
-  transporte_id: string | null;
-  estado_viaje: EstadoViajeUsuario | null;
-  fecha_reserva: string | null;
-  abordo: boolean | null;
-  asistencia_cancelada: boolean | null;
+/** Fila de la tabla `rol` (catálogo de roles del dominio). */
+export interface FilaRol {
+  id_rol: number;
+  nombre_rol: Rol;
 }
 
-/** Datos mínimos para registrar un pasajero desde la app móvil. */
-export interface DatosRegistroPasajero {
+/** Fila de la tabla `usuario` del proyecto OmniTravel. */
+export interface UsuarioOmniTravel {
+  id_usuario: number;
+  email: string;
+  /** Hash de contrasena (SHA-256) guardado para trazabilidad del front web. */
+  password_hash: string;
+  rol_id: number;
+  fecha_registro: string;
+  estado_cuenta: EstadoCuenta;
+  /** UUID del usuario en Supabase Auth (auth.users.id) cuando está vinculado. */
+  auth_user_id: string | null;
+}
+
+/** Datos de registro de una cuenta viajero desde la app móvil (U03). */
+export interface DatosRegistro {
   nombre: string;
   email: string;
   contrasena: string;
-  necesidades: string[];
-  /** Se rellenan con valores por defecto si no se proporcionan. */
-  telefono?: string;
-  departamento?: string;
-  municipio?: string;
 }
 
-export interface ResultadoLogin {
-  usuario: UsuarioSupabase;
+/** Resultado del registro contra Supabase Auth + tabla `usuario`. */
+export interface ResultadoRegistro {
+  email: string;
+  /** UUID en auth.users cuando Supabase Auth aceptó la cuenta. */
+  idAuthSupabase: string | null;
+  /** Fila de `usuario` creada; null si la política INSERT de RLS está pendiente. */
+  perfil: UsuarioOmniTravel | null;
+  /** Aviso informativo (p. ej. RLS pendiente) — no es un error. */
+  aviso?: string;
+}
+
+/** Resultado del inicio de sesión contra Supabase Auth. */
+export interface ResultadoSesion {
+  /** Fila de `usuario` si pudo leerse; null si la política SELECT está pendiente. */
+  perfil: UsuarioOmniTravel | null;
+  /** Aviso informativo (p. ej. RLS pendiente) — no es un error. */
+  aviso?: string;
 }

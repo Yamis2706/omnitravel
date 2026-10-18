@@ -15,7 +15,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, UrlTile } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { Badge } from '../components/Badge';
@@ -23,11 +23,12 @@ import { FilterSheet } from '../components/FilterSheet';
 import { PoiCard } from '../components/PoiCard';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import { calcularRutaAccesible } from '../services/api/routes';
-import { getPoiPorId, POIS_MOCK } from '../services/mocks/pois';
 import type { Coordenada, Poi, ResultadoRuta } from '../services/types';
+import { usePoisStore } from '../store/poisStore';
 import { useProfileStore } from '../store/profileStore';
 import { aplicarFiltros } from '../utils/filters';
 import { formatearDistancia } from '../utils/format';
+import { datosDesactualizados, restriccionesDesdePerfil } from '../utils/ruta';
 import {
   colors,
   fontSize,
@@ -51,8 +52,13 @@ type EstadoPermiso = 'pendiente' | 'concedido' | 'denegado';
 /**
  * U06 — Vista de Mapa y Ruteo.
  *
- * - Mapa con tiles OpenStreetMap (ADR-06, sin API key para el MVP).
- * - POIs simulados con la forma del contrato `bbox → GeoJSON` del C4.
+ * - Mapa base de Google (en Expo Go pinta sin API key; en producción se
+ *   configura con la API key del plugin `react-native-maps`, ver README).
+ *   La alternativa solo-OSM con `mapType="none"` + `UrlTile` dejó el lienzo
+ *   vacío en un Android real (issue react-native-maps #5413, cerrado sin
+ *   fix), por lo que se abandonó para la demo.
+ * - POIs de la BD del equipo (Supabase OmniTravel) con degradación a datos
+ *   de demostración si la lectura aún no está habilitada.
  * - Filtros U05 generados desde el catálogo de características.
  * - Ruteo real contra `POST /routes` del backend, con errores visibles
  *   y anunciados (RNF-14, RNF-17).
@@ -63,8 +69,18 @@ export function MapScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
+  const pois = usePoisStore((estado) => estado.pois);
+  const poiPorId = usePoisStore((estado) => estado.poiPorId);
+  const cargadoPois = usePoisStore((estado) => estado.cargado);
+  const cargarPois = usePoisStore((estado) => estado.cargar);
+  const fuentePois = usePoisStore((estado) => estado.fuente);
+  const advertenciaPois = usePoisStore((estado) => estado.advertencia);
+
   const filtrosActivos = useProfileStore(
     (estado) => estado.perfil?.filtrosActivos ?? [],
+  );
+  const necesidadesPerfil = useProfileStore(
+    (estado) => estado.perfil?.necesidades ?? [],
   );
   const establecerFiltros = useProfileStore(
     (estado) => estado.establecerFiltros,
@@ -80,6 +96,13 @@ export function MapScreen() {
   const [cargandoRuta, setCargandoRuta] = useState(false);
   const [errorRuta, setErrorRuta] = useState<string | null>(null);
   const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
+
+  // Carga única de POIs del equipo (BD con fallback a demo) al abrir el mapa.
+  useEffect(() => {
+    if (!cargadoPois) {
+      void cargarPois();
+    }
+  }, [cargadoPois, cargarPois]);
 
   // Permiso de ubicación con degradación elegante (sin bloquear el mapa).
   useEffect(() => {
@@ -117,18 +140,24 @@ export function MapScreen() {
   const destinoParam = route.params?.destinoPoiId;
   useEffect(() => {
     if (destinoParam) {
-      const poi = getPoiPorId(destinoParam);
+      const poi = poiPorId(destinoParam);
       if (poi) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setSeleccionado(poi);
         setDestinoId(poi.id);
       }
     }
-  }, [destinoParam]);
+  }, [destinoParam, poiPorId]);
 
   const poisVisibles = useMemo(
-    () => aplicarFiltros(POIS_MOCK, filtrosActivos),
-    [filtrosActivos],
+    () => aplicarFiltros(pois, filtrosActivos),
+    [pois, filtrosActivos],
+  );
+
+  // Restricciones del Proceso 2 derivadas del perfil local de accesibilidad.
+  const restricciones = useMemo(
+    () => restriccionesDesdePerfil(necesidadesPerfil, filtrosActivos),
+    [necesidadesPerfil, filtrosActivos],
   );
 
   const origen = useMemo(
@@ -136,7 +165,7 @@ export function MapScreen() {
     [ubicacionUsuario],
   );
 
-  const destino = destinoId ? getPoiPorId(destinoId) : undefined;
+  const destino = destinoId ? poiPorId(destinoId) : undefined;
 
   const seleccionarPoi = (poi: Poi) => {
     setSeleccionado(poi);
@@ -154,10 +183,14 @@ export function MapScreen() {
     setResultado(null);
 
     try {
-      const ruta = await calcularRutaAccesible(origen, {
-        latitude: destino.latitud,
-        longitude: destino.longitud,
-      });
+      const ruta = await calcularRutaAccesible(
+        origen,
+        {
+          latitude: destino.latitud,
+          longitude: destino.longitud,
+        },
+        restricciones,
+      );
       setResultado(ruta);
       // En Android el anuncio lo hace la región viva del resultado (evita doble lectura).
       if (Platform.OS === 'ios') {
@@ -177,22 +210,17 @@ export function MapScreen() {
     } finally {
       setCargandoRuta(false);
     }
-  }, [destino, origen]);
+  }, [destino, origen, restricciones]);
 
   return (
     <View style={estilos.pantalla}>
       <MapView
         style={estilos.mapa}
         initialRegion={REGION_INICIAL}
-        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
         showsUserLocation={permiso === 'concedido'}
         showsMyLocationButton={false}
         accessibilityLabel="Mapa de lugares accesibles en Armenia"
       >
-        <UrlTile
-          urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maximumZ={19}
-        />
         {poisVisibles.map((poi) => {
           const activo = seleccionado?.id === poi.id;
           return (
@@ -200,7 +228,6 @@ export function MapScreen() {
               key={poi.id}
               coordinate={{ latitude: poi.latitud, longitude: poi.longitud }}
               onPress={() => seleccionarPoi(poi)}
-              tracksViewChanges={false}
               accessibilityLabel={`${poi.nombre}. ${
                 poi.estadoVerificacion === 'VERIFICADO'
                   ? 'Accesibilidad verificada'
@@ -252,6 +279,20 @@ export function MapScreen() {
       <View
         style={[estilos.panel, { paddingBottom: insets.bottom + spacing.md }]}
       >
+        {fuentePois === 'mock' ? (
+          <View style={estilos.avisoDatos} accessibilityLiveRegion="polite">
+            <Ionicons
+              name="cloud-offline-outline"
+              size={16}
+              color={colors.warning}
+            />
+            <Text style={estilos.avisoDatosTexto} numberOfLines={2}>
+              {advertenciaPois ??
+                'Mostrando lugares de demostración: sin conexión a la base de datos del equipo.'}
+            </Text>
+          </View>
+        ) : null}
+
         {seleccionado ? (
           <View style={estilos.tarjetaSeleccion}>
             <PoiCard
@@ -302,6 +343,33 @@ export function MapScreen() {
           </View>
         ) : null}
 
+        {resultado &&
+        destino &&
+        datosDesactualizados(destino.ultimaVerificacion) ? (
+          <View style={estilos.avisoDatos} accessibilityLiveRegion="polite">
+            <Ionicons name="time-outline" size={16} color={colors.warning} />
+            <Text style={estilos.avisoDatosTexto}>
+              Los datos de accesibilidad de este lugar superan los 60 días o no
+              están verificados (RNF-27).
+            </Text>
+          </View>
+        ) : null}
+
+        {resultado?.advertencias && resultado.advertencias.length > 0 ? (
+          <View style={estilos.avisoDatos}>
+            {resultado.advertencias.map((advertencia) => (
+              <View key={advertencia} style={estilos.filaDato}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={16}
+                  color={colors.warning}
+                />
+                <Text style={estilos.avisoDatosTexto}>{advertencia}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         {errorRuta ? (
           <Text style={estilos.error} accessibilityLiveRegion="polite">
             {errorRuta}
@@ -316,6 +384,22 @@ export function MapScreen() {
           cargando={cargandoRuta}
           pistaAccesibilidad="Calcula la ruta peatonal hasta el lugar seleccionado"
         />
+
+        {resultado && destino ? (
+          <AppButton
+            titulo="Iniciar navegación"
+            variante="contorno"
+            icono="navigate-circle-outline"
+            onPress={() =>
+              navigation.navigate('Navegacion', {
+                poiId: destino.id,
+                origenLat: origen.latitude,
+                origenLon: origen.longitude,
+              })
+            }
+            pistaAccesibilidad="Abre la navegación paso a paso con las indicaciones de la ruta"
+          />
+        ) : null}
       </View>
 
       <FilterSheet
@@ -443,5 +527,18 @@ const estilos = StyleSheet.create({
   error: {
     fontSize: fontSize.xs,
     color: colors.danger,
+  },
+  avisoDatos: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.warningSoft,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+  },
+  avisoDatosTexto: {
+    flex: 1,
+    fontSize: fontSize.xs,
+    color: colors.textPrimary,
   },
 });

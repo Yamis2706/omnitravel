@@ -1,16 +1,35 @@
 /**
  * Configuración del cliente Supabase.
  *
- * Por defecto se usan las credenciales del proyecto compartido por el equipo
- * (misma URL y anon key que el front web, ver `FacultadCienciaYTecnologia/OmniTravel`).
- * Se pueden sobreescribir con variables de entorno Expo:
+ * Las credenciales llegan por variables de entorno Expo (EXPO_PUBLIC_* se
+ * inyectan en tiempo de compilación y deben existir en `mobile-app/.env`
+ * antes de arrancar — copia `.env.example`):
+ *
  *   EXPO_PUBLIC_SUPABASE_URL
  *   EXPO_PUBLIC_SUPABASE_ANON_KEY
+ *
+ * Proyecto vigente: "sarafaustino's Project" (organización OmniTravel, ref
+ * `scpwrozsjpittiypvwxj`) — esquema OmniTravel con PostGIS. El proyecto
+ * compartido de transporte ya NO es fuente de datos de esta app, por lo que
+ * no hay credenciales de respaldo incrustadas en el código: si falta una
+ * variable se interrumpe el arranque con un mensaje accionable.
  */
-export const SUPABASE_URL =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ??
-  'https://kwseysanvdyvtfofnhzw.supabase.co';
+const URL_ENV = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const LLAVE_ENV = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-export const SUPABASE_ANON_KEY =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt3c2V5c2FudmR5dnRmb2ZuaHp3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0MDExMzEsImV4cCI6MjEwNDk3NzEzMX0.jEQ5MUak6efMOOFTF7utYqkOiVko0w1JWj0ZOUldOTg';
+if (!URL_ENV) {
+  throw new Error(
+    'Falta EXPO_PUBLIC_SUPABASE_URL en mobile-app/.env (copia .env.example). ' +
+      'Supabase no puede iniciarse sin ella.',
+  );
+}
+
+if (!LLAVE_ENV) {
+  throw new Error(
+    'Falta EXPO_PUBLIC_SUPABASE_ANON_KEY en mobile-app/.env ' +
+      '(copia .env.example). Supabase no puede iniciarse sin ella.',
+  );
+}
+
+export const SUPABASE_URL = URL_ENV;
+export const SUPABASE_ANON_KEY = LLAVE_ENV;

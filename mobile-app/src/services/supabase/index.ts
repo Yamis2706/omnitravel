@@ -1,14 +1,16 @@
 export { supabase, SUPABASE_URL } from './client';
 export {
-  registrarPasajeroSupabase,
-  iniciarSesionPasajero,
-  obtenerUsuarioPorId,
+  registrarCuenta,
+  iniciarSesionCuenta,
+  obtenerPerfilPorIdAuth,
 } from './auth';
 export type {
-  UsuarioSupabase,
-  RolUsuario,
-  EstadoAprobacion,
-  DatosRegistroPasajero,
-  ResultadoLogin,
+  Rol,
+  EstadoCuenta,
+  FilaRol,
+  UsuarioOmniTravel,
+  DatosRegistro,
+  ResultadoRegistro,
+  ResultadoSesion,
 } from './types';
 export { hashearContrasena } from './hash';

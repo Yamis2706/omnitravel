@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import {
   AccessibilityInfo,
   Alert,
@@ -9,18 +9,21 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { BrandMark } from '../components/BrandMark';
+import { CampoTexto } from '../components/CampoTexto';
+import { registrarCuenta } from '../services/supabase/auth';
+import type { IconName } from '../services/types';
+import type { RootStackParamList } from '../navigation/types';
 import {
   useProfileStore,
   type NecesidadAccesibilidad,
 } from '../store/profileStore';
-import type { IconName } from '../services/types';
-import { registrarPasajeroSupabase } from '../services/supabase/auth';
 import {
   colors,
   fontSize,
@@ -70,13 +73,16 @@ export function validarContrasena(contrasena: string): boolean {
 /**
  * U03 — Registro y Privacidad (Habeas Data).
  *
- * Los campos de cuenta se validan localmente (el backend de autenticación
- * todavía no existe). El perfil de accesibilidad se guarda cifrado en el
- * dispositivo y NUNCA se envía al servidor (Ley 1581, RNF-07).
- * Configuración en una sola pantalla (RNF-13).
+ * La cuenta se crea real en Supabase Auth del proyecto OmniTravel del equipo
+ * (y se vincula a la tabla `usuario` cuando las políticas RLS lo permiten).
+ * El perfil de accesibilidad se guarda cifrado en el dispositivo y NUNCA se
+ * envía al servidor (Ley 1581, RNF-07). Configuración en una sola pantalla
+ * (RNF-13).
  */
 export function RegisterScreen() {
   const guardarPerfil = useProfileStore((estado) => estado.guardarPerfil);
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const [registrando, setRegistrando] = useState(false);
 
@@ -122,12 +128,11 @@ export function RegisterScreen() {
 
     setRegistrando(true);
     try {
-      // La cuenta (email + contraseña hasheada) vive en Supabase.
-      await registrarPasajeroSupabase({
+      // La cuenta vive en Supabase Auth (proyecto OmniTravel del equipo).
+      const resultado = await registrarCuenta({
         nombre: nombre.trim(),
         email: email.trim(),
         contrasena,
-        necesidades: necesidades.map(String),
       });
 
       // El perfil de accesibilidad sigue siendo 100 % local (Ley 1581).
@@ -135,12 +140,19 @@ export function RegisterScreen() {
         nombre: nombre.trim(),
         necesidades,
         filtrosActivos: [],
+        rol: 'viajero',
       });
 
       if (Platform.OS === 'ios') {
         AccessibilityInfo.announceForAccessibility(
           'Perfil creado. Bienvenido a OmniTravel.',
         );
+      }
+
+      // Aviso informativo (no error) cuando la sincronización con la tabla
+      // `usuario` queda pendiente de las políticas RLS del equipo de datos.
+      if (resultado.aviso) {
+        Alert.alert('Cuenta creada', resultado.aviso);
       }
     } catch (error) {
       Alert.alert(
@@ -152,11 +164,8 @@ export function RegisterScreen() {
     }
   };
 
-  const mostrarAyudaLogin = () => {
-    Alert.alert(
-      'Inicio de sesión',
-      'Estará disponible cuando el backend exponga la API de autenticación (JWT). Por ahora el acceso es directo con tu perfil local.',
-    );
+  const irAInicioSesion = () => {
+    navigation.navigate('Login');
   };
 
   return (
@@ -297,7 +306,7 @@ export function RegisterScreen() {
           <View style={estilos.pie}>
             <Text style={estilos.pieTexto}>¿Ya tienes una cuenta?</Text>
             <Pressable
-              onPress={mostrarAyudaLogin}
+              onPress={irAInicioSesion}
               accessibilityRole="button"
               accessibilityLabel="Iniciar sesión"
             >
@@ -307,67 +316,6 @@ export function RegisterScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
-  );
-}
-
-interface CampoTextoProps {
-  etiqueta: string;
-  icono: IconName;
-  placeholder: string;
-  value: string;
-  onChangeText: (texto: string) => void;
-  error?: string;
-  ayuda?: string;
-  secureTextEntry?: boolean;
-  keyboardType?: 'default' | 'email-address';
-  autoCapitalize?: 'none' | 'sentences' | 'words';
-  autoComplete?: 'name' | 'email' | 'new-password';
-  accesorio?: ReactNode;
-}
-
-function CampoTexto({
-  etiqueta,
-  icono,
-  placeholder,
-  value,
-  onChangeText,
-  error,
-  ayuda,
-  secureTextEntry,
-  keyboardType,
-  autoCapitalize,
-  autoComplete,
-  accesorio,
-}: CampoTextoProps) {
-  return (
-    <View>
-      <Text style={estilos.etiquetaCampo}>{etiqueta}</Text>
-      <View
-        style={[estilos.inputContenedor, error ? estilos.inputError : null]}
-      >
-        <Ionicons name={icono} size={18} color={colors.textSecondary} />
-        <TextInput
-          style={estilos.input}
-          placeholder={placeholder}
-          placeholderTextColor={colors.textMuted}
-          value={value}
-          onChangeText={onChangeText}
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize}
-          autoComplete={autoComplete}
-          accessibilityLabel={etiqueta}
-        />
-        {accesorio}
-      </View>
-      {error ? (
-        <Text style={estilos.textoError} accessibilityLiveRegion="polite">
-          {error}
-        </Text>
-      ) : ayuda ? (
-        <Text style={estilos.textoAyuda}>{ayuda}</Text>
-      ) : null}
-    </View>
   );
 }
 

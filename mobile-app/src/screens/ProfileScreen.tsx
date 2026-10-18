@@ -1,13 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { Card } from '../components/Card';
 import { Chip } from '../components/Chip';
+import type { RootStackParamList } from '../navigation/types';
 import {
   useProfileStore,
   type NecesidadAccesibilidad,
 } from '../store/profileStore';
+import { supabase } from '../services/supabase';
 import { colors, fontSize, fontWeight, radii, spacing } from '../utils/theme';
 
 const ETIQUETAS_NECESIDAD: Record<NecesidadAccesibilidad, string> = {
@@ -22,8 +26,13 @@ const ETIQUETAS_NECESIDAD: Record<NecesidadAccesibilidad, string> = {
  * del dispositivo). La gamificación completa llega en una siguiente iteración.
  */
 export function ProfileScreen() {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const perfil = useProfileStore((estado) => estado.perfil);
   const cerrarSesion = useProfileStore((estado) => estado.cerrarSesion);
+
+  const esModerador =
+    perfil?.rol === 'moderador' || perfil?.rol === 'administrador';
 
   const confirmarCierre = () => {
     Alert.alert(
@@ -34,7 +43,11 @@ export function ProfileScreen() {
         {
           text: 'Cerrar sesión',
           style: 'destructive',
-          onPress: () => cerrarSesion(),
+          onPress: () => {
+            // Cierra también la sesión de Supabase Auth (best-effort).
+            void supabase.auth.signOut();
+            cerrarSesion();
+          },
         },
       ],
     );
@@ -64,7 +77,11 @@ export function ProfileScreen() {
               <Text style={estilos.nombre}>
                 {perfil?.nombre ?? 'Viajero OmniTravel'}
               </Text>
-              <Text style={estilos.rol}>Explorador de lugares accesibles</Text>
+              <Text style={estilos.rol}>
+                {esModerador
+                  ? 'Moderación de la comunidad'
+                  : 'Explorador de lugares accesibles'}
+              </Text>
             </View>
           </View>
 
@@ -117,6 +134,33 @@ export function ProfileScreen() {
             </View>
           </View>
         </Card>
+
+        {esModerador ? (
+          <Card>
+            <View style={estilos.filaAjuste}>
+              <View style={estilos.iconoAjuste}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={20}
+                  color={colors.primary}
+                />
+              </View>
+              <View style={estilos.textosAjuste}>
+                <Text style={estilos.tituloAjuste}>Consola de moderación</Text>
+                <Text style={estilos.descripcionAjuste}>
+                  Revisa los reportes de la comunidad: publica los verificados o
+                  recházalos con motivo (Vía B del Proceso 1).
+                </Text>
+              </View>
+            </View>
+            <AppButton
+              titulo="Abrir consola"
+              icono="shield-checkmark-outline"
+              onPress={() => navigation.navigate('Moderacion')}
+              pistaAccesibilidad="Abre la lista de reportes pendientes de moderación"
+            />
+          </Card>
+        ) : null}
 
         <AppButton
           titulo="Cerrar sesión"

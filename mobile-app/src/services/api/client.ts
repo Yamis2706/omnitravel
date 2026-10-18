@@ -38,10 +38,18 @@ export async function apiFetch<T>(
     });
 
     if (!respuesta.ok) {
-      throw new ApiError(
-        `El servidor respondió con estado ${respuesta.status}.`,
-        respuesta.status,
-      );
+      // NestJS responde con `message` legible (p. ej. validaciones del
+      // ruteo); si el cuerpo no es JSON se conserva el mensaje genérico.
+      let mensaje = `El servidor respondió con estado ${respuesta.status}.`;
+      try {
+        const cuerpo = (await respuesta.json()) as { message?: unknown };
+        if (typeof cuerpo?.message === 'string' && cuerpo.message.trim()) {
+          mensaje = cuerpo.message;
+        }
+      } catch {
+        // Cuerpo no JSON: se mantiene el mensaje genérico.
+      }
+      throw new ApiError(mensaje, respuesta.status);
     }
 
     return (await respuesta.json()) as T;

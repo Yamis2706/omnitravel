@@ -6,22 +6,31 @@ import {
 } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-  Alert,
+  AccessibilityInfo,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AccessibilityValueRow } from '../components/AccessibilityValueRow';
 import { AppButton } from '../components/AppButton';
 import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
+import { ConsensoAlcanzado } from '../components/ConsensoAlcanzado';
 import { EmptyState } from '../components/EmptyState';
 import type { RootStackParamList } from '../navigation/types';
 import { CATALOGO_CARACTERISTICAS } from '../services/mocks/catalog';
-import { getPoiPorId } from '../services/mocks/pois';
+import {
+  confirmarReporte,
+  obtenerReporteDePoi,
+  ReporteError,
+} from '../services/reportes';
+import type { ReporteComunitario } from '../services/types';
+import { usePoisStore } from '../store/poisStore';
 import { formatearFechaCorta } from '../utils/format';
 import {
   colors,
@@ -60,7 +69,53 @@ export function PoiDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'DetallePoi'>>();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const poi = getPoiPorId(route.params.poiId);
+  const poiPorId = usePoisStore((estado) => estado.poiPorId);
+  const poisCargados = usePoisStore((estado) => estado.cargado);
+  const cargarPois = usePoisStore((estado) => estado.cargar);
+
+  // Reintenta la carga si la pantalla se abrió antes de tener datos.
+  useEffect(() => {
+    if (!poisCargados) {
+      void cargarPois();
+    }
+  }, [poisCargados, cargarPois]);
+
+  const [reporte, setReporte] = useState<ReporteComunitario | null | undefined>(
+    undefined,
+  );
+  const [confirmando, setConfirmando] = useState(false);
+  const [yaConfirme, setYaConfirme] = useState(false);
+  const [mensajeConfirmacion, setMensajeConfirmacion] = useState<string | null>(
+    null,
+  );
+  const [s01Visible, setS01Visible] = useState(false);
+
+  const poiId = route.params.poiId;
+
+  // Reporte vigente del punto: habilita la confirmación comunitaria (C3).
+  // `undefined` = cargando; `null` = el punto aún no tiene reportes.
+  useEffect(() => {
+    let vigente = true;
+    if (!poisCargados) {
+      return undefined;
+    }
+    obtenerReporteDePoi(poiId)
+      .then((activo) => {
+        if (vigente) {
+          setReporte(activo);
+        }
+      })
+      .catch(() => {
+        if (vigente) {
+          setReporte(null);
+        }
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [poiId, poisCargados]);
+
+  const poi = poiPorId(poiId);
 
   if (!poi) {
     return (
@@ -77,12 +132,60 @@ export function PoiDetailScreen() {
   }
 
   const verificado = poi.estadoVerificacion === 'VERIFICADO';
+  const cargandoReporte = reporte === undefined;
+  const reporteActivo = reporte ?? null;
+  const reporteConfirmable = reporteActivo?.estado === 'pendiente';
 
-  const validarInformacion = () => {
-    Alert.alert(
-      'Validar información',
-      'El flujo de validación comunitaria (confirmaciones) llega en la siguiente iteración (U09–U10).',
-    );
+  const tituloBotonConfirmar = yaConfirme
+    ? 'Ya confirmaste este reporte'
+    : verificado
+      ? 'Accesibilidad confirmada'
+      : 'Confirmar accesibilidad';
+
+  /**
+   * C3 — suma una confirmación comunitaria. A la tercera de usuarios
+   * independientes la BD publica el punto y se abre el modal S01.
+   */
+  const confirmarAccesibilidad = async () => {
+    if (!reporteActivo || confirmando) {
+      return;
+    }
+    setConfirmando(true);
+    setMensajeConfirmacion(null);
+    try {
+      const resultado = await confirmarReporte(reporteActivo.id);
+      setReporte((anterior) =>
+        anterior
+          ? {
+              ...anterior,
+              confirmaciones: resultado.confirmaciones,
+              estado: resultado.publicado ? 'publicado' : anterior.estado,
+            }
+          : anterior,
+      );
+      if (resultado.publicado) {
+        setS01Visible(true);
+        void cargarPois();
+      } else {
+        setMensajeConfirmacion(
+          `¡Gracias! Este lugar suma ${resultado.confirmaciones} de 3 confirmaciones.`,
+        );
+      }
+    } catch (error) {
+      const mensaje = (error as Error).message;
+      if (
+        error instanceof ReporteError &&
+        error.codigo === 'CONFIRMACION_DUPLICADA'
+      ) {
+        setYaConfirme(true);
+      }
+      setMensajeConfirmacion(mensaje);
+      if (Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibility(mensaje);
+      }
+    } finally {
+      setConfirmando(false);
+    }
   };
 
   return (
@@ -187,12 +290,36 @@ export function PoiDetailScreen() {
             estilo={estilos.boton}
           />
           <AppButton
-            titulo="Validar información"
+            titulo={tituloBotonConfirmar}
             variante="contorno"
             icono="checkmark-done-outline"
-            onPress={validarInformacion}
+            cargando={cargandoReporte || confirmando}
+            deshabilitado={!reporteConfirmable || yaConfirme || confirmando}
+            onPress={() => void confirmarAccesibilidad()}
+            pistaAccesibilidad="Suma tu confirmación: con 3, la comunidad publica el lugar"
             estilo={estilos.boton}
           />
+          {reporteConfirmable ? (
+            <Text
+              style={estilos.progresoConfirmaciones}
+              accessibilityLiveRegion="polite"
+            >
+              {reporte?.confirmaciones ?? 0} de 3 confirmaciones para publicar
+            </Text>
+          ) : null}
+          {!reporteConfirmable && !verificado && !cargandoReporte ? (
+            <Text style={estilos.sinReporte}>
+              Aún no hay un reporte activo de la comunidad para este lugar.
+            </Text>
+          ) : null}
+          {mensajeConfirmacion ? (
+            <Text
+              style={estilos.mensajeConfirmacion}
+              accessibilityLiveRegion="polite"
+            >
+              {mensajeConfirmacion}
+            </Text>
+          ) : null}
         </View>
 
         <View style={estilos.seccion}>
@@ -228,6 +355,12 @@ export function PoiDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      <ConsensoAlcanzado
+        visible={s01Visible}
+        poiNombre={poi.nombre}
+        onCerrar={() => setS01Visible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -342,6 +475,23 @@ const estilos = StyleSheet.create({
   },
   boton: {
     width: '100%',
+  },
+  progresoConfirmaciones: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
+    textAlign: 'center',
+  },
+  sinReporte: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  mensajeConfirmacion: {
+    fontSize: fontSize.sm,
+    color: colors.success,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   sinExperiencias: {
     fontSize: fontSize.sm,

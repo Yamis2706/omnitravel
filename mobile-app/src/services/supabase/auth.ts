@@ -1,105 +1,217 @@
 import { supabase } from './client';
-import type { DatosRegistroPasajero, UsuarioSupabase } from './types';
+import type {
+  DatosRegistro,
+  ResultadoRegistro,
+  ResultadoSesion,
+  UsuarioOmniTravel,
+} from './types';
+import type { RolUsuario } from '../types';
 import { hashearContrasena } from './hash';
 
-const TABLA_USUARIOS = 'usuarios';
+const TABLA_USUARIOS = 'usuario';
 
-function mensajeErrorSupabase(error: {
+/**
+ * Catálogo de roles del dominio verificado en la BD del equipo
+ * (`rol`: 1 viajero, 2 colaborador, 3 establecimiento, 4 moderador,
+ * 5 administrador). Se usa para derivar el rol del perfil local al entrar.
+ */
+const ROLES_POR_ID: Record<number, RolUsuario> = {
+  1: 'viajero',
+  2: 'colaborador',
+  3: 'establecimiento',
+  4: 'moderador',
+  5: 'administrador',
+};
+
+/** Deriva el rol del front desde `usuario.rol_id` (viajero si es desconocido). */
+export function rolDeUsuarioId(rolId?: number | null): RolUsuario {
+  if (rolId != null && ROLES_POR_ID[rolId]) {
+    return ROLES_POR_ID[rolId];
+  }
+  return 'viajero';
+}
+
+/**
+ * Respaldo del catálogo de roles (semilla verificada en la BD del equipo:
+ * `rol` con nombre_rol='viajero' tiene id_rol=1). El valor se resuelve por
+ * nombre con `idRolViajero()` cuando la política de lectura de `rol` permite
+ * la consulta (aplicada 2026-10-17, ver docs/gestion/supabase-sara/).
+ */
+const ID_ROL_VIAJERO = 1;
+
+/** Resuelve el id del rol 'viajero' desde el catálogo, con respaldo de semilla. */
+async function idRolViajero(): Promise<number> {
+  const { data, error } = await supabase
+    .from('rol')
+    .select('id_rol')
+    .eq('nombre_rol', 'viajero')
+    .maybeSingle();
+  if (error || !data) {
+    return ID_ROL_VIAJERO;
+  }
+  return data.id_rol;
+}
+
+interface ErrorSupabase {
   code?: string;
   message?: string;
-}): string {
-  if (error.code === '23505') {
+}
+
+/** Traduce los mensajes de Supabase a español operable por la UI. */
+function mensajeErrorSupabase(error: ErrorSupabase): string {
+  const mensaje = error.message ?? '';
+  const code = error.code ?? '';
+
+  if (
+    code === 'user_already_exists' ||
+    mensaje.includes('already registered')
+  ) {
     return 'El correo electrónico ya está registrado.';
   }
-  if (error.code === 'PGRST116') {
-    return 'No se encontró el usuario.';
+  if (mensaje.includes('Invalid login credentials')) {
+    return 'Correo o contraseña incorrectos.';
   }
-  return error.message ?? 'Error de Supabase.';
+  if (mensaje.includes('Email not confirmed')) {
+    return 'Confirma tu correo electrónico antes de iniciar sesión.';
+  }
+  if (code === '42501' || mensaje.includes('row-level security')) {
+    return 'La base de datos todavía no permite esta operación desde la app.';
+  }
+  if (code === '23505') {
+    return 'El correo electrónico ya está registrado.';
+  }
+  return mensaje || 'Error de conexión con la base de datos.';
 }
 
 /**
- * Crea un pasajero en la tabla `usuarios` usando el mismo esquema que el
- * front web del equipo. La contraseña se guarda hasheada con SHA256.
+ * Crea la cuenta en Supabase Auth (`auth.users`) y vincula el perfil en la
+ * tabla `usuario` del proyecto OmniTravel (rol viajero, RNF-06/09).
+ *
+ * La vinculación falla en silencio (aviso, no error) mientras el equipo de
+ * datos aprueba la política INSERT de RLS sobre `usuario`; la cuenta sigue
+ * siendo válida en Supabase Auth.
  */
-export async function registrarPasajeroSupabase(
-  datos: DatosRegistroPasajero,
-): Promise<UsuarioSupabase> {
-  const hash = await hashearContrasena(datos.contrasena);
-  const ahora = Date.now();
+export async function registrarCuenta(
+  datos: DatosRegistro,
+): Promise<ResultadoRegistro> {
+  const email = datos.email.trim().toLowerCase();
 
-  const payload = {
-    nombre_completo: datos.nombre.trim(),
-    email: datos.email.trim().toLowerCase(),
-    password: hash,
-    rol: 'pasajero' as const,
-    es_menor: false,
-    telefono: datos.telefono ?? '00000000',
-    dni: `PAS-${ahora}`,
-    fecha_nacimiento: '2000-01-01',
-    codigo_pasajero: `PAS${ahora}`,
-    departamento: datos.departamento ?? 'Quindío',
-    municipio: datos.municipio ?? 'Armenia',
-    estado_aprobacion: 'pendiente' as const,
-  };
-
-  const { data, error } = await supabase
-    .from(TABLA_USUARIOS)
-    .insert(payload)
-    .select()
-    .single();
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password: datos.contrasena,
+  });
 
   if (error) {
-    throw new Error(
-      mensajeErrorSupabase(error as { code?: string; message?: string }),
+    throw new Error(mensajeErrorSupabase(error as ErrorSupabase));
+  }
+
+  const idAuth = data.user?.id ?? null;
+
+  // Si el proyecto exige confirmación de correo (MAILER_AUTOCONFIRM fuera),
+  // signUp no devuelve sesión: avisamos el paso pendiente sin bloquear la
+  // vinculación del perfil (la política INSERT es pública).
+  const avisos: string[] = [];
+  if (!data.session) {
+    avisos.push(
+      'Tu cuenta fue creada. Revisa tu correo y confírmala antes de ' +
+        'iniciar sesión.',
     );
   }
-  return data as UsuarioSupabase;
+
+  // Vinculación del perfil de dominio (best-effort, requiere política RLS).
+  let perfil: UsuarioOmniTravel | null = null;
+
+  if (idAuth) {
+    const [hash, rolId] = await Promise.all([
+      hashearContrasena(datos.contrasena),
+      idRolViajero(),
+    ]);
+    const { data: fila, error: errorInsert } = await supabase
+      .from(TABLA_USUARIOS)
+      .insert({
+        email,
+        password_hash: hash,
+        rol_id: rolId,
+        estado_cuenta: 'activo',
+        auth_user_id: idAuth,
+      })
+      .select()
+      .maybeSingle();
+
+    if (errorInsert) {
+      avisos.push(
+        'La sincronización de tu perfil con la base de datos queda ' +
+          'pendiente de una configuración del equipo (política RLS de ' +
+          'usuario).',
+      );
+    } else {
+      perfil = (fila as UsuarioOmniTravel | null) ?? null;
+    }
+  }
+
+  return {
+    email,
+    idAuthSupabase: idAuth,
+    perfil,
+    aviso: avisos.length > 0 ? avisos.join(' ') : undefined,
+  };
 }
 
 /**
- * Inicia sesión comparando la contraseña hasheada contra la fila existente.
- * Devuelve el usuario autenticado.
+ * Inicia sesión contra Supabase Auth y devuelve el perfil de dominio
+ * (tabla `usuario`) vinculado por `auth_user_id`. Si la política SELECT de
+ * RLS aún no está aprobada se entrega solo la sesión con un aviso.
  */
-export async function iniciarSesionPasajero(
+export async function iniciarSesionCuenta(
   email: string,
   contrasena: string,
-): Promise<UsuarioSupabase> {
+): Promise<ResultadoSesion> {
   const correo = email.trim().toLowerCase();
-  const hash = await hashearContrasena(contrasena);
 
-  const { data, error } = await supabase
-    .from(TABLA_USUARIOS)
-    .select('*')
-    .eq('email', correo)
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: correo,
+    password: contrasena,
+  });
 
   if (error) {
-    throw new Error(mensajeErrorSupabase(error));
+    throw new Error(mensajeErrorSupabase(error as ErrorSupabase));
   }
-  if (!data) {
-    throw new Error('Correo o contraseña incorrectos.');
+
+  const idAuth = data.user?.id ?? null;
+  if (!idAuth) {
+    return { perfil: null, aviso: 'Sesión iniciada sin perfil asociado.' };
   }
-  if (data.password !== hash) {
-    throw new Error('Correo o contraseña incorrectos.');
+
+  const { data: perfil, error: errorPerfil } = await supabase
+    .from(TABLA_USUARIOS)
+    .select('*')
+    .eq('auth_user_id', idAuth)
+    .maybeSingle();
+
+  if (errorPerfil) {
+    return {
+      perfil: null,
+      aviso:
+        'Sesión iniciada. Tu perfil de la base de datos está pendiente de ' +
+        'configuración del equipo (política RLS de usuario).',
+    };
   }
-  return data as UsuarioSupabase;
+
+  return { perfil: (perfil as UsuarioOmniTravel | null) ?? null };
 }
 
-/**
- * Obtiene un perfil por id.
- */
-export async function obtenerUsuarioPorId(
-  id: string,
-): Promise<UsuarioSupabase | null> {
+/** Obtiene la fila de `usuario` vinculada a un id de Supabase Auth. */
+export async function obtenerPerfilPorIdAuth(
+  idAuth: string,
+): Promise<UsuarioOmniTravel | null> {
   const { data, error } = await supabase
     .from(TABLA_USUARIOS)
     .select('*')
-    .eq('id', id)
+    .eq('auth_user_id', idAuth)
     .maybeSingle();
 
   if (error) {
-    throw new Error(mensajeErrorSupabase(error));
+    throw new Error(mensajeErrorSupabase(error as ErrorSupabase));
   }
-  return (data as UsuarioSupabase | null) ?? null;
+  return (data as UsuarioOmniTravel | null) ?? null;
 }

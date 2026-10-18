@@ -1,6 +1,9 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { LoginScreen } from '../screens/LoginScreen';
+import { ModeracionScreen } from '../screens/ModeracionScreen';
+import { NavegacionScreen } from '../screens/NavegacionScreen';
 import { PoiDetailScreen } from '../screens/PoiDetailScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { useProfileStore } from '../store/profileStore';
@@ -12,7 +15,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /**
  * Navegación raíz con flujo por estado de sesión:
- * sin perfil → Registro; con perfil → pestañas + detalle de POI.
+ * sin perfil → Registro/Login; con perfil → pestañas + detalle de POI.
  * El perfil se lee del almacenamiento cifrado del dispositivo (nunca del backend).
  */
 export function RootNavigator() {
@@ -42,9 +45,26 @@ export function RootNavigator() {
               component={PoiDetailScreen}
               options={{ animation: 'slide_from_right' }}
             />
+            <Stack.Screen
+              name="Moderacion"
+              component={ModeracionScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+            <Stack.Screen
+              name="Navegacion"
+              component={NavegacionScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
           </>
         ) : (
-          <Stack.Screen name="Registro" component={RegisterScreen} />
+          <>
+            <Stack.Screen name="Registro" component={RegisterScreen} />
+            <Stack.Screen
+              name="Login"
+              component={LoginScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

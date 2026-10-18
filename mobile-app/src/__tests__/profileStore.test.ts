@@ -33,6 +33,27 @@ describe('profileStore', () => {
     expect(perfil?.creadoEn).toBeTruthy();
   });
 
+  it('degrada el rol a viajero cuando no se especifica (mínimo privilegio)', () => {
+    useProfileStore.getState().guardarPerfil({
+      nombre: 'Ana',
+      necesidades: [],
+      filtrosActivos: [],
+    });
+
+    expect(useProfileStore.getState().perfil?.rol).toBe('viajero');
+  });
+
+  it('conserva el rol de moderación al guardar el perfil', () => {
+    useProfileStore.getState().guardarPerfil({
+      nombre: 'Mod',
+      necesidades: [],
+      filtrosActivos: [],
+      rol: 'moderador',
+    });
+
+    expect(useProfileStore.getState().perfil?.rol).toBe('moderador');
+  });
+
   it('persiste el perfil en el almacenamiento seguro del dispositivo', () => {
     useProfileStore.getState().guardarPerfil({
       nombre: 'Ana',

@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import type { RolUsuario } from '../services/types';
 import type { FiltroId } from '../utils/filters';
 
 /**
@@ -20,17 +21,31 @@ export interface PerfilAccesibilidad {
   necesidades: NecesidadAccesibilidad[];
   filtrosActivos: FiltroId[];
   creadoEn: string;
+  /**
+   * Rol de dominio derivado de la fila `usuario` al iniciar sesión
+   * (moderador/administrador habilitan la consola M03–M05). Perfiles
+   * antiguos sin este campo se leen como 'viajero'.
+   */
+  rol: RolUsuario;
 }
 
 interface EstadoPerfil {
   /** true cuando el store terminó de leer el almacenamiento seguro. */
   hidratado: boolean;
   perfil: PerfilAccesibilidad | null;
-  guardarPerfil: (perfil: Omit<PerfilAccesibilidad, 'creadoEn'>) => void;
+  guardarPerfil: (perfil: DatosPerfil) => void;
   alternarFiltro: (filtro: FiltroId) => void;
   establecerFiltros: (filtros: FiltroId[]) => void;
   cerrarSesion: () => void;
 }
+
+/**
+ * Datos aceptados por `guardarPerfil`: el rol es opcional y se degrada a
+ * 'viajero' (mínimo privilegio) cuando el llamador no lo conoce.
+ */
+export type DatosPerfil = Omit<PerfilAccesibilidad, 'creadoEn' | 'rol'> & {
+  rol?: RolUsuario;
+};
 
 const almacenamientoSeguro = {
   getItem: (nombre: string) => SecureStore.getItemAsync(nombre),
@@ -46,7 +61,11 @@ export const useProfileStore = create<EstadoPerfil>()(
       perfil: null,
       guardarPerfil: (datos) =>
         set({
-          perfil: { ...datos, creadoEn: new Date().toISOString() },
+          perfil: {
+            ...datos,
+            rol: datos.rol ?? 'viajero',
+            creadoEn: new Date().toISOString(),
+          },
         }),
       alternarFiltro: (filtro) =>
         set((estado) => {
