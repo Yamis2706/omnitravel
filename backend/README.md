@@ -25,6 +25,45 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## API OmniTravel — `POST /routes` (Proceso 2)
+
+Ruteo peatonal accesible contra Valhalla. Contrato y decisiones en
+`src/routing/valhalla-payload.ts`; pruebas unitarias en
+`src/routing/valhalla-payload.spec.ts`.
+
+```http
+POST /routes
+Content-Type: application/json
+
+{
+  "origin": [4.537, -75.675],
+  "destination": [4.53389, -75.68111],
+  "restrictions": {
+    "perfil": "silla_de_ruedas",     // o "visual" / "peatonal"
+    "avoidStairs": true,
+    "requireElevator": true,
+    "preferSoundTrafficLights": false
+  }
+}
+```
+
+Respuesta normalizada (aislada del formato Valhalla):
+
+```json
+{
+  "distanciaKm": 1.24, "duracionMin": 15.4, "perfil": "silla_de_ruedas",
+  "shape": "<polyline6>",
+  "pasos": [{ "tipo": 10, "instruccion": "Gira a la derecha.", "distanciaKm": 0.8 }],
+  "advertencias": []
+}
+```
+
+- Valhalla no tiene costing `wheelchair`: se usa `costing: 'pedestrian'` con
+  `costing_options.pedestrian.type` (`wheelchair` / `blind`).
+- Errores: `BadRequestException` para coordenadas inválidas y
+  `InternalServerErrorException` (mensaje en español) si el motor no responde.
+- Variable de entorno: `VALHALLA_URL` (por defecto `http://localhost:8002`).
+
 ## Project setup
 
 ```bash

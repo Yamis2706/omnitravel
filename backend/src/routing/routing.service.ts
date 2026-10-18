@@ -2,38 +2,48 @@ import {
     Injectable,
     InternalServerErrorException,
 } from '@nestjs/common';
+import {
+    construirSolicitudValhalla,
+    normalizarRespuestaValhalla,
+    validarCoordenada,
+    type RestriccionesRuta,
+    type RutaNormalizada,
+} from './valhalla-payload';
 
+/**
+ * Proceso 2 — Motor de rutas accesibles.
+ *
+ * Traduce la petición de la app (`POST /routes`) a una solicitud peatonal de
+ * Valhalla con las restricciones de accesibilidad del perfil y normaliza la
+ * respuesta (distancia, duración, pasos y advertencias). El detalle del
+ * contrato vive en `valhalla-payload.ts`.
+ */
 @Injectable()
 export class RoutingService {
     private readonly valhallaUrl =
         process.env.VALHALLA_URL ?? 'http://localhost:8002';
 
     async calculateRoute(
-        origin: [number, number],
-        destination: [number, number],
-    ) {
-        const requestBody = {
-            locations: [
-                {
-                    lat: origin[0],
-                    lon: origin[1],
-                },
-                {
-                    lat: destination[0],
-                    lon: destination[1],
-                },
-            ],
-            costing: 'auto',
-            units: 'kilometers',
-        };
+        origin: unknown,
+        destination: unknown,
+        restricciones: RestriccionesRuta = {},
+    ): Promise<RutaNormalizada> {
+        const origen = validarCoordenada(origin, 'origin');
+        const destino = validarCoordenada(destination, 'destination');
+        const { solicitud, advertencias } = construirSolicitudValhalla(
+            origen,
+            destino,
+            restricciones,
+        );
 
+        let crudo: unknown;
         try {
             const response = await fetch(`${this.valhallaUrl}/route`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(requestBody),
+                body: JSON.stringify(solicitud),
             });
 
             if (!response.ok) {
@@ -44,15 +54,21 @@ export class RoutingService {
                 );
             }
 
-            return response.json();
+            crudo = await response.json();
         } catch (error) {
             if (error instanceof InternalServerErrorException) {
                 throw error;
             }
 
             throw new InternalServerErrorException(
-                'No fue posible comunicarse con Valhalla',
+                'No fue posible comunicarse con el motor de ruteo.',
             );
         }
+
+        return normalizarRespuestaValhalla(
+            crudo,
+            restricciones.perfil ?? 'peatonal',
+            advertencias,
+        );
     }
 }
