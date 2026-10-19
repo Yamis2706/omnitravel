@@ -54,7 +54,7 @@ export const TIPOS_POI: { valor: string; etiqueta: string }[] = [
   { valor: 'atraccion', etiqueta: 'Atracción' },
 ];
 
-/** Paso 1 — tipo de reporte y datos de identificación del lugar. */
+/** Identificación del lugar (en el wizard reorganizado se exige en Paso 2). */
 export function validarPaso1(borrador: BorradorReporte): string[] {
   const errores: string[] = [];
 
@@ -74,21 +74,203 @@ export function validarPaso1(borrador: BorradorReporte): string[] {
   return errores;
 }
 
-/** Paso 2 — ubicación, evidencia y descripción. */
+/** Paso 2 — ubicación, evidencia y descripción (combinado, retrocompatible). */
 export function validarPaso2(borrador: BorradorReporte): string[] {
-  const errores: string[] = [];
+  return [...validarUbicacion(borrador), ...validarDescripcion(borrador)];
+}
 
-  if (borrador.modo === 'nuevo') {
-    if (borrador.lat === null || borrador.lon === null) {
-      errores.push(
-        'Captura la ubicación del lugar con el botón de GPS (o escríbela).',
-      );
-    }
+/** Requiere coords para lugares nuevos; al actualizar la BD ya las tiene. */
+export function validarUbicacion(borrador: BorradorReporte): string[] {
+  if (
+    borrador.modo === 'nuevo' &&
+    (borrador.lat === null || borrador.lon === null)
+  ) {
+    return [
+      'Captura la ubicación del lugar con el botón de GPS (o escríbela).',
+    ];
   }
+  return [];
+}
+
+/** Paso 3 — el aporte necesita una descripción de lo que se encontró. */
+export function validarDescripcion(borrador: BorradorReporte): string[] {
   if (!borrador.descripcion.trim()) {
-    errores.push('Describe brevemente lo que encontraste.');
+    return ['Describe brevemente lo que encontraste.'];
   }
-  return errores;
+  return [];
+}
+
+/** Paso 2 completo del wizard reorganizado: identificación + ubicación. */
+export function validarPasoUbicacion(borrador: BorradorReporte): string[] {
+  return [...validarPaso1(borrador), ...validarUbicacion(borrador)];
+}
+
+/** Paso 3 completo del wizard reorganizado: descripción del aporte. */
+export function validarPasoDetalles(borrador: BorradorReporte): string[] {
+  return validarDescripcion(borrador);
+}
+
+/**
+ * Etiquetas rápidas del paso Detalles (mockup U10). Cada etiqueta fija el
+ * valor de una característica del catálogo; no todas existen en toda BD, así
+ * que la pantalla solo muestra las que el catálogo vigente reconoce.
+ */
+export type TonoEtiqueta = 'peligro' | 'alerta' | 'exito';
+
+export interface EtiquetaRapida {
+  id: string;
+  etiqueta: string;
+  /** Id estable de la característica que la etiqueta fija. */
+  caracteristicaId: string;
+  tono: TonoEtiqueta;
+  booleano?: boolean;
+  numerico?: number;
+}
+
+export const ETIQUETAS_RAPIDAS: EtiquetaRapida[] = [
+  {
+    id: 'sin_rampa',
+    etiqueta: 'Sin rampa',
+    caracteristicaId: 'tiene_rampa',
+    tono: 'peligro',
+    booleano: false,
+  },
+  {
+    id: 'rampa_bien',
+    etiqueta: 'Rampa en buen estado',
+    caracteristicaId: 'tiene_rampa',
+    tono: 'exito',
+    booleano: true,
+  },
+  {
+    id: 'escalones',
+    etiqueta: 'Escalones',
+    caracteristicaId: 'tiene_escaleras',
+    tono: 'peligro',
+    booleano: true,
+  },
+  {
+    id: 'sin_escalones',
+    etiqueta: 'Sin escalones',
+    caracteristicaId: 'tiene_escaleras',
+    tono: 'exito',
+    booleano: false,
+  },
+  {
+    id: 'ascensor_danado',
+    etiqueta: 'Ascensor dañado',
+    caracteristicaId: 'tiene_ascensor',
+    tono: 'alerta',
+    booleano: false,
+  },
+  {
+    id: 'ascensor_operativo',
+    etiqueta: 'Ascensor operativo',
+    caracteristicaId: 'tiene_ascensor',
+    tono: 'exito',
+    booleano: true,
+  },
+  {
+    id: 'bano_no',
+    etiqueta: 'Baño no adaptado',
+    caracteristicaId: 'tiene_bano_accesible',
+    tono: 'peligro',
+    booleano: false,
+  },
+  {
+    id: 'bano_si',
+    etiqueta: 'Baño adaptado',
+    caracteristicaId: 'tiene_bano_accesible',
+    tono: 'exito',
+    booleano: true,
+  },
+  {
+    id: 'puerta_estrecha',
+    etiqueta: 'Puerta estrecha < 80 cm',
+    caracteristicaId: 'ancho_puerta',
+    tono: 'alerta',
+    numerico: 75,
+  },
+  {
+    id: 'puerta_amplia',
+    etiqueta: 'Puerta amplia (≥ 80 cm)',
+    caracteristicaId: 'ancho_puerta',
+    tono: 'exito',
+    numerico: 100,
+  },
+  {
+    id: 'braille_no',
+    etiqueta: 'Sin menú Braille',
+    caracteristicaId: 'tiene_braille',
+    tono: 'alerta',
+    booleano: false,
+  },
+  {
+    id: 'braille_si',
+    etiqueta: 'Menú Braille',
+    caracteristicaId: 'tiene_braille',
+    tono: 'exito',
+    booleano: true,
+  },
+  {
+    id: 'podotactil_no',
+    etiqueta: 'Señalización deficiente',
+    caracteristicaId: 'tiene_piso_podotactil',
+    tono: 'alerta',
+    booleano: false,
+  },
+  {
+    id: 'podotactil_si',
+    etiqueta: 'Piso podotáctil',
+    caracteristicaId: 'tiene_piso_podotactil',
+    tono: 'exito',
+    booleano: true,
+  },
+  {
+    id: 'semaforo_no',
+    etiqueta: 'Sin semáforo sonoro',
+    caracteristicaId: 'tiene_semaforo_sonoro',
+    tono: 'alerta',
+    booleano: false,
+  },
+  {
+    id: 'semaforo_si',
+    etiqueta: 'Semáforo sonoro',
+    caracteristicaId: 'tiene_semaforo_sonoro',
+    tono: 'exito',
+    booleano: true,
+  },
+];
+
+/** ¿Está elegida esa etiqueta con los valores actuales del borrador? */
+export function estaEtiquetaElegida(
+  valores: Record<string, ValorBorrador>,
+  etiqueta: EtiquetaRapida,
+): boolean {
+  const actual = valores[etiqueta.caracteristicaId];
+  if (etiqueta.booleano !== undefined) {
+    return actual?.booleano === etiqueta.booleano;
+  }
+  return actual?.numerico === String(etiqueta.numerico);
+}
+
+/** Activa/retira una etiqueta sobre los valores del borrador (sin mutar). */
+export function alternarEtiquetaRapida(
+  valores: Record<string, ValorBorrador>,
+  etiqueta: EtiquetaRapida,
+): Record<string, ValorBorrador> {
+  if (estaEtiquetaElegida(valores, etiqueta)) {
+    const copia = { ...valores };
+    delete copia[etiqueta.caracteristicaId];
+    return copia;
+  }
+  return {
+    ...valores,
+    [etiqueta.caracteristicaId]:
+      etiqueta.booleano !== undefined
+        ? { booleano: etiqueta.booleano }
+        : { numerico: String(etiqueta.numerico) },
+  };
 }
 
 /**

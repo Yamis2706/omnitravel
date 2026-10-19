@@ -94,9 +94,30 @@ Incluye, con arranque en un bloque de DIAGNÓSTICO (leer antes de ejecutar):
    políticas de subida por carpeta de usuario.
 5. Semilla del reporte de demostración del POI 5 y verificación final.
 
-Los valores de `estado`/`tipo` asumen minúsculas consistentes con
-`poi.estado`; las líneas a ajustar si algún CHECK difiere están marcadas con
-`>> AJUSTAR` en el script.
+**EJECUTADO el 2026-10-18** por el lado del front con dos ajustes del
+diario (detalle en el encabezado del script): (1) §3 (funciones auxiliares)
+se ejecutó antes de §2 porque la política de moderación referencia
+`es_moderador()`; (2) el CHECK real de `reporte.estado` es
+`{'pendiente_validacion','publicado','rechazado','en_revision'}` — NO acepta
+`'pendiente'` — por lo que las RPCs quedaron con `pendiente_validacion` y el
+front alineó sus literales (detalle U08 con doble soporte heredado,
+moderación M03 y servicio de reportes). `via_resolucion` queda anotado
+('automatica' al publicar por consenso de 3, 'manual' por decisión de
+moderación). Verificación con sesión real:
+`usuario_actual_id()` = 11; `crear_reporte` creó POI + reporte + 2 valores
+y se limpiaron; `listar_reportes_moderacion` sin rol → ACCESO_DENEGADO ✓.
+La semilla demo del POI 5 queda en `pendiente_validacion` (id_reporte 6,
+0/3 confirmaciones) lista para la demo del consenso.
+
+### GUARDADOS — favoritos (2026-10-18, EJECUTADO)
+
+`peticiones-front-guardados.sql`: la tabla `favorito` tenía RLS activada
+SIN políticas (denegaba todo al cliente). Se crearon
+`guardados_lectura_propia` (SELECT), `guardados_inserta_propia` (INSERT) y
+`guardados_elimina_propia` (DELETE) para `authenticated`, todas acotadas con
+`usuario_id = public.usuario_actual_id()` (dueño vía `auth_user_id`).
+Verificado con sesión real: INSERT 201 · lectura propia OK · filas de
+otros usuarios invisibles · DELETE 204 · 0 filas huérfanas.
 
 > **Nota para producción/evaluación:** la política `registro_cuenta_viajero`
 > usa `with check (true)` (roles anon+authenticated) para que U03 funcione
@@ -115,8 +136,20 @@ Los valores de `estado`/`tipo` asumen minúsculas consistentes con
   catálogo y valores desde la BD con fallback a mocks tipados si la lectura
   aún está bloqueada por RLS; Mapa (U06) y Detalle (U08) consumen el store.
 - **Cerrar sesión** también desloguea de Supabase Auth (U12).
+- **Guardados reales**: `services/favoritos.ts` + `store/favoritosStore.ts`
+  sincronizan el corazón (U08) con la tabla `favorito` (políticas del dueño
+  `guardados_*`): lista en el tab con tarjetas y botón quitar, carga lazy,
+  rollback optimista si la BD rechaza la operación.
+- **Contribuir operativo de lado BD**: la pantalla `ContributeScreen` ya
+  usa las
+  RPCs de la Entrega 2 (ejecutadas) — `crear_reporte` verificado con la
+  sesión real de la app (estado `pendiente_validacion` + consenso 0/3 de la
+  semilla del POI 5 lista para demostrar la publicación comunitaria).
+- **Mapa U06 en WebView + Leaflet**: el nativo `react-native-maps` quedó
+  intermitente en Expo Go Android; `components/MapaWeb.tsx` pinta tiles OSM
+  sin API keys con marcadores/polyline vía puente postMessage.
 - Parser geoespacial puro y probado (`services/coordenadas.ts`,
-  28 pruebas unitarias en total, typecheck + lint en verde).
+  65 pruebas unitarias en 9 suites, typecheck + lint en verde).
 
 ## 5. Avisos de privacidad (RNF-07/08/09)
 

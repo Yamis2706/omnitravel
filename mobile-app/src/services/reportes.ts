@@ -3,6 +3,7 @@ import type {
   AccionModeracion,
   ReporteComunitario,
   ReporteModeracion,
+  ReporteResumen,
   ResultadoConfirmacion,
   ValorCaracteristicaReporte,
   ValorPropuestoReporte,
@@ -315,9 +316,10 @@ export async function obtenerReporteDePoi(
 /**
  * Lista de reportes para la consola de moderación (M03/M04). La BD valida el
  * rol (moderador/administrador); sin permiso responde ACCESO_DENEGADO.
+ * `null` lista todos los estados (filtro «Todos» de la consola).
  */
 export async function listarReportesModeracion(
-  estado: string = 'pendiente',
+  estado: string | null = 'pendiente_validacion',
 ): Promise<ReporteModeracion[]> {
   const { data, error } = await supabase.rpc('listar_reportes_moderacion', {
     p_estado: estado,
@@ -351,4 +353,110 @@ export async function decidirReporte(
 
   const resultado = data as { estado: string } | null;
   return { estado: resultado?.estado ?? accion };
+}
+
+/** Id de `usuario` de la sesión activa (null si aún no hay perfil vinculado). */
+async function idUsuarioActual(): Promise<number | null> {
+  const { data, error } = await supabase.rpc('usuario_actual_id');
+  if (error || data == null) {
+    return null;
+  }
+  return Number(data);
+}
+
+/** Fila cruda de `reporte` usada por los listados del viajero. */
+interface FilaResumenReporte {
+  id_reporte: number;
+  poi_id: number;
+  tipo: string | null;
+  estado: string;
+  descripcion: string | null;
+  es_critico: boolean | null;
+  fecha_creacion: string;
+}
+
+/**
+ * Mapea las filas de `reporte` al resumen del front contando sus
+ * confirmaciones (una sola consulta agregada, sin N+1).
+ */
+async function mapearResumenes(
+  filas: FilaResumenReporte[],
+): Promise<ReporteResumen[]> {
+  if (filas.length === 0) {
+    return [];
+  }
+
+  const ids = filas.map((fila) => fila.id_reporte);
+  const { data, error } = await supabase
+    .from('confirmacion')
+    .select('reporte_id')
+    .in('reporte_id', ids);
+
+  if (error) {
+    throw new Error(`No se pudieron leer las confirmaciones: ${error.message}`);
+  }
+
+  const conteo = new Map<number, number>();
+  for (const fila of (data ?? []) as { reporte_id: number }[]) {
+    conteo.set(fila.reporte_id, (conteo.get(fila.reporte_id) ?? 0) + 1);
+  }
+
+  return filas.map((fila) => ({
+    id: String(fila.id_reporte),
+    poiId: String(fila.poi_id),
+    tipo: fila.tipo ?? 'nuevo',
+    estado: (fila.estado ?? '').trim().toLowerCase(),
+    descripcion: fila.descripcion ?? '',
+    esCritico: fila.es_critico === true,
+    fechaCreacion: fila.fecha_creacion,
+    confirmaciones: conteo.get(fila.id_reporte) ?? 0,
+  }));
+}
+
+const COLUMNAS_RESUMEN =
+  'id_reporte, poi_id, tipo, estado, descripcion, es_critico, fecha_creacion';
+
+/**
+ * Reportes creados por la sesión activa ("Mis reportes" de U12), del más
+ * reciente al más antiguo. La lectura de `reporte` es pública (política
+ * `lectura_publica_reporte`), el filtro por autor es explícito.
+ */
+export async function listarMisReportes(): Promise<ReporteResumen[]> {
+  const idUsuario = await idUsuarioActual();
+  if (idUsuario == null) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('reporte')
+    .select(COLUMNAS_RESUMEN)
+    .eq('usuario_creador_id', idUsuario)
+    .order('fecha_creacion', { ascending: false });
+
+  if (error) {
+    throw new Error(`No se pudieron leer tus reportes: ${error.message}`);
+  }
+
+  return mapearResumenes((data ?? []) as FilaResumenReporte[]);
+}
+
+/**
+ * Barreras críticas vigentes de la comunidad (reportes con `es_critico` que
+ * no fueron rechazados). Alimenta los marcadores naranja del mapa (U06):
+ * escaleras, aceras rotas, ascensores dañados… reportados por otros viajeros.
+ */
+export async function listarBarrerasComunitarias(): Promise<ReporteResumen[]> {
+  const { data, error } = await supabase
+    .from('reporte')
+    .select(COLUMNAS_RESUMEN)
+    .eq('es_critico', true)
+    .neq('estado', 'rechazado')
+    .order('fecha_creacion', { ascending: false })
+    .limit(100);
+
+  if (error) {
+    throw new Error(`No se pudieron leer las barreras: ${error.message}`);
+  }
+
+  return mapearResumenes((data ?? []) as FilaResumenReporte[]);
 }

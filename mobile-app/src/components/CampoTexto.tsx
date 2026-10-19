@@ -24,7 +24,7 @@ interface CampoTextoProps {
     'default' | 'email-address' | 'numeric' | 'decimal-pad' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words';
   autoComplete?:
-    'name' | 'email' | 'password' | 'new-password' | 'current-password';
+    'name' | 'email' | 'password' | 'new-password' | 'current-password' | 'off';
   accesorio?: ReactNode;
   /** Área de texto de varias líneas (descripciones de reportes, motivos). */
   multilinea?: boolean;

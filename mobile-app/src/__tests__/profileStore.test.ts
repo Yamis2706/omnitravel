@@ -115,4 +115,35 @@ describe('profileStore', () => {
     useProfileStore.getState().alternarFiltro('menu_braille');
     expect(useProfileStore.getState().perfil).toBeNull();
   });
+
+  it('conserva la foto solo entre sesiones de la misma cuenta', () => {
+    useProfileStore.getState().guardarPerfil({
+      nombre: 'Ana',
+      necesidades: [],
+      filtrosActivos: [],
+      idCuenta: '1',
+    });
+    useProfileStore.getState().establecerFoto('file:///doc/perfil-foto-1.jpg');
+
+    // Relanzamiento de la MISMA cuenta: la foto se arrastra.
+    useProfileStore.getState().guardarPerfil({
+      nombre: 'Ana',
+      necesidades: [],
+      filtrosActivos: [],
+      idCuenta: '1',
+    });
+    expect(useProfileStore.getState().perfil?.fotoUri).toBe(
+      'file:///doc/perfil-foto-1.jpg',
+    );
+
+    // Otra cuenta no hereda la foto de la anterior (issue del equipo).
+    useProfileStore.getState().guardarPerfil({
+      nombre: 'Luis',
+      necesidades: [],
+      filtrosActivos: [],
+      idCuenta: '2',
+    });
+    expect(useProfileStore.getState().perfil?.fotoUri).toBeUndefined();
+    expect(useProfileStore.getState().perfil?.idCuenta).toBe('2');
+  });
 });

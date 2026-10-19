@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
-import { Badge } from '../components/Badge';
+import { Badge, type TonoBadge } from '../components/Badge';
 import { CampoTexto } from '../components/CampoTexto';
 import { Card } from '../components/Card';
 import { EmptyState } from '../components/EmptyState';
@@ -27,6 +27,7 @@ import {
   ReporteError,
 } from '../services/reportes';
 import type {
+  EstadoReporte,
   ReporteModeracion,
   ValorCaracteristicaReporte,
 } from '../services/types';
@@ -54,16 +55,45 @@ function formatearValor(valor: ValorCaracteristicaReporte): string {
     : '—';
 }
 
+/** Chips de estado de la consola; pendientes es el que exige acción. */
+const FILTROS_ESTADO: { id: EstadoReporte | 'todos'; etiqueta: string }[] = [
+  { id: 'pendiente_validacion', etiqueta: 'Pendientes' },
+  { id: 'en_revision', etiqueta: 'En revisión' },
+  { id: 'publicado', etiqueta: 'Publicados' },
+  { id: 'rechazado', etiqueta: 'Rechazados' },
+  { id: 'todos', etiqueta: 'Todos' },
+];
+
+/** Badge del estado real del reporte en la lista (M03). */
+function badgeDeEstado(estado: string): { texto: string; tono: TonoBadge } {
+  switch (estado) {
+    case 'publicado':
+      return { texto: 'Publicado', tono: 'exito' };
+    case 'en_revision':
+      return { texto: 'En revisión', tono: 'neutro' };
+    case 'rechazado':
+      return { texto: 'Rechazado', tono: 'peligro' };
+    default:
+      return { texto: 'Pendiente', tono: 'alerta' };
+  }
+}
+
+interface Props {
+  /** Embebida como pestaña de la app: sin botón atrás, con recarga propia. */
+  embebida?: boolean;
+}
+
 /**
  * M03/M04/M05 — Consola de moderación (Vía B del Proceso 1).
  *
  * Solo accesible para roles moderador/administrador (RNF-09): la propia BD
  * valida el rol en `listar_reportes_moderacion`; aquí se oculta la entrada
- * para el resto de perfiles. Lista los reportes en validación, muestra el
- * detalle con evidencia y permite aprobar (publicación directa) o rechazar
- * con motivo obligatorio y auditado (RNF-22/30).
+ * para el resto de perfiles. Lista los reportes por estado (pendientes,
+ * en revisión, publicados, rechazados o todos), muestra el detalle con
+ * evidencia y permite aprobar (publicación directa) o rechazar con motivo
+ * obligatorio y auditado (RNF-22/30).
  */
-export function ModeracionScreen() {
+export function ModeracionScreen({ embebida = false }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const perfil = useProfileStore((estado) => estado.perfil);
@@ -83,17 +113,21 @@ export function ModeracionScreen() {
   const [errorAccion, setErrorAccion] = useState<string | null>(null);
   /** Token de recarga: subirlo desde un manejador relanza la consulta. */
   const [recarga, setRecarga] = useState(0);
+  /** Filtro de estado (M03): 'todos' pide a la RPC el historial completo. */
+  const [estadoFiltro, setEstadoFiltro] = useState<EstadoReporte | 'todos'>(
+    'pendiente_validacion',
+  );
 
   const refrescar = () => setRecarga((numero) => numero + 1);
 
-  // Carga la lista al entrar y en cada refresco (token), sin setState
-  // síncrono en el efecto: los estados se fijan en los callbacks.
+  // Carga la lista al entrar, al refrescar (token) y al cambiar el filtro,
+  // sin setState síncrono en el efecto: los estados se fijan en callbacks.
   useEffect(() => {
     let vigente = true;
     if (!esModerador) {
       return undefined;
     }
-    listarReportesModeracion('pendiente')
+    listarReportesModeracion(estadoFiltro === 'todos' ? null : estadoFiltro)
       .then((lista) => {
         if (vigente) {
           setReportes(lista);
@@ -112,7 +146,7 @@ export function ModeracionScreen() {
     return () => {
       vigente = false;
     };
-  }, [esModerador, recarga]);
+  }, [esModerador, recarga, estadoFiltro]);
 
   const abrirDetalle = (reporte: ReporteModeracion) => {
     setAviso(null);
@@ -390,22 +424,75 @@ export function ModeracionScreen() {
   return (
     <SafeAreaView style={estilos.pantalla} edges={['top']}>
       <View style={estilos.barraNavegacion}>
+        {embebida ? null : (
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={estilos.botonAtras}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
+          >
+            <Ionicons
+              name="chevron-back"
+              size={24}
+              color={colors.textPrimary}
+            />
+          </Pressable>
+        )}
+        <Text style={[estilos.tituloBarra, estilos.tituloBarraFlexible]}>
+          {embebida ? 'Reportes de la comunidad' : 'Consola de moderación'}
+        </Text>
         <Pressable
-          onPress={() => navigation.goBack()}
-          style={estilos.botonAtras}
+          onPress={refrescar}
+          style={estilos.botonRefrescar}
           accessibilityRole="button"
-          accessibilityLabel="Volver"
+          accessibilityLabel="Actualizar la lista de reportes"
         >
-          <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+          <Ionicons name="refresh" size={22} color={colors.primary} />
         </Pressable>
-        <Text style={estilos.tituloBarra}>Consola de moderación</Text>
       </View>
 
       <ScrollView contentContainerStyle={estilos.contenido}>
         <Text style={estilos.subtitulo}>
-          Reportes de la comunidad en validación. Los marcados como prioritarios
-          detectaron una barrera crítica.
+          Revisa, verifica o publica los reportes de la comunidad. Los marcados
+          como prioritarios detectaron una barrera crítica.
         </Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={estilos.chipsEstado}
+          accessibilityLabel="Filtrar reportes por estado"
+        >
+          {FILTROS_ESTADO.map(({ id, etiqueta }) => {
+            const activoFiltro = estadoFiltro === id;
+            return (
+              <Pressable
+                key={id}
+                onPress={() => {
+                  setEstadoFiltro(id);
+                  setReportes(null);
+                  setErrorCarga(null);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Ver reportes ${etiqueta.toLowerCase()}`}
+                accessibilityState={{ selected: activoFiltro }}
+                style={[
+                  estilos.chipEstado,
+                  activoFiltro ? estilos.chipEstadoActivo : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    estilos.chipEstadoTexto,
+                    activoFiltro ? estilos.chipEstadoTextoActivo : null,
+                  ]}
+                >
+                  {etiqueta}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         {aviso ? (
           <View style={estilos.bloqueExito} accessibilityLiveRegion="polite">
@@ -441,54 +528,66 @@ export function ModeracionScreen() {
         {reportes && reportes.length === 0 && !errorCarga ? (
           <EmptyState
             icono="file-tray-outline"
-            titulo="Sin reportes pendientes"
-            descripcion="No hay reportes de la comunidad en validación por ahora."
+            titulo={
+              estadoFiltro === 'pendiente_validacion'
+                ? 'Sin reportes pendientes'
+                : 'Sin reportes con este estado'
+            }
+            descripcion="No hay reportes de la comunidad con el estado seleccionado por ahora."
             textoBoton="Actualizar"
             onPressBoton={refrescar}
           />
         ) : null}
 
         {reportes
-          ? reportes.map((reporte) => (
-              <Card key={reporte.id} estilo={estilos.tarjetaReporte}>
-                <View style={estilos.filaEncabezado}>
-                  <View style={estilos.textosReporte}>
-                    <Text style={estilos.nombrePoi}>{reporte.poi.nombre}</Text>
-                    <Text style={estilos.detallePoi}>
-                      {reporte.tipo === 'nuevo'
-                        ? 'Lugar nuevo'
-                        : 'Actualización'}{' '}
-                      · {reporte.poi.tipo} ·{' '}
-                      {formatearFechaCorta(reporte.fechaCreacion)}
-                    </Text>
+          ? reportes.map((reporte) => {
+              const estado = badgeDeEstado(reporte.estado);
+              return (
+                <Card key={reporte.id} estilo={estilos.tarjetaReporte}>
+                  <View style={estilos.filaEncabezado}>
+                    <View style={estilos.textosReporte}>
+                      <Text style={estilos.nombrePoi}>
+                        {reporte.poi.nombre}
+                      </Text>
+                      <Text style={estilos.detallePoi}>
+                        {reporte.tipo === 'nuevo'
+                          ? 'Lugar nuevo'
+                          : 'Actualización'}{' '}
+                        · {reporte.poi.tipo} ·{' '}
+                        {formatearFechaCorta(reporte.fechaCreacion)}
+                      </Text>
+                    </View>
+                    <View style={estilos.badgesEstado}>
+                      <Badge tono={estado.tono} texto={estado.texto} />
+                      {reporte.esCritico ? (
+                        <Badge tono="peligro" texto="Prioritario" />
+                      ) : null}
+                    </View>
                   </View>
-                  {reporte.esCritico ? (
-                    <Badge tono="peligro" texto="Prioritario" />
-                  ) : null}
-                </View>
-                <Text style={estilos.detallePoi} numberOfLines={2}>
-                  {reporte.descripcion || 'Sin descripción.'}
-                </Text>
-                <View style={estilos.filaEncabezado}>
-                  <Badge
-                    tono="neutro"
-                    texto={`${reporte.confirmaciones} de 3 confirmaciones`}
+                  <Text style={estilos.detallePoi} numberOfLines={2}>
+                    {reporte.descripcion || 'Sin descripción.'}
+                  </Text>
+                  <View style={estilos.filaEncabezado}>
+                    <Badge
+                      tono="neutro"
+                      texto={`${reporte.confirmaciones} de 3 confirmaciones`}
+                    />
+                    <Badge
+                      tono={reporte.evidencia.length > 0 ? 'exito' : 'neutro'}
+                      texto={
+                        reporte.evidencia.length > 0 ? 'Con foto' : 'Sin foto'
+                      }
+                    />
+                  </View>
+                  <AppButton
+                    titulo="Revisar reporte"
+                    variante="contorno"
+                    icono="eye-outline"
+                    onPress={() => abrirDetalle(reporte)}
                   />
-                  <Badge
-                    tono={reporte.evidencia.length > 0 ? 'exito' : 'neutro'}
-                    texto={
-                      reporte.evidencia.length > 0 ? 'Con foto' : 'Sin foto'
-                    }
-                  />
-                </View>
-                <AppButton
-                  titulo="Revisar reporte"
-                  variante="contorno"
-                  icono="eye-outline"
-                  onPress={() => abrirDetalle(reporte)}
-                />
-              </Card>
-            ))
+                </Card>
+              );
+            })
           : null}
       </ScrollView>
     </SafeAreaView>
@@ -511,6 +610,46 @@ const estilos = StyleSheet.create({
     height: TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  botonRefrescar: {
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tituloBarraFlexible: {
+    flex: 1,
+  },
+  chipsEstado: {
+    gap: spacing.sm,
+    paddingVertical: 2,
+    paddingRight: spacing.md,
+  },
+  chipEstado: {
+    minHeight: 36,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipEstadoActivo: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipEstadoTexto: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
+  },
+  chipEstadoTextoActivo: {
+    color: colors.white,
+  },
+  badgesEstado: {
+    alignItems: 'flex-end',
+    gap: spacing.xs,
   },
   tituloBarra: {
     fontSize: fontSize.lg,

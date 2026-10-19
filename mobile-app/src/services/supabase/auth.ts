@@ -179,7 +179,11 @@ export async function iniciarSesionCuenta(
 
   const idAuth = data.user?.id ?? null;
   if (!idAuth) {
-    return { perfil: null, aviso: 'Sesión iniciada sin perfil asociado.' };
+    return {
+      perfil: null,
+      idAuthSupabase: null,
+      aviso: 'Sesión iniciada sin perfil asociado.',
+    };
   }
 
   const { data: perfil, error: errorPerfil } = await supabase
@@ -191,13 +195,17 @@ export async function iniciarSesionCuenta(
   if (errorPerfil) {
     return {
       perfil: null,
+      idAuthSupabase: idAuth,
       aviso:
         'Sesión iniciada. Tu perfil de la base de datos está pendiente de ' +
         'configuración del equipo (política RLS de usuario).',
     };
   }
 
-  return { perfil: (perfil as UsuarioOmniTravel | null) ?? null };
+  return {
+    perfil: (perfil as UsuarioOmniTravel | null) ?? null,
+    idAuthSupabase: idAuth,
+  };
 }
 
 /** Obtiene la fila de `usuario` vinculada a un id de Supabase Auth. */

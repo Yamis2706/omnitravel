@@ -23,9 +23,11 @@ export class ApiError extends Error {
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
+  /** Timeout particular (el respaldo de ruteo usa uno más corto). */
+  timeoutMs: number = TIMEOUT_MS,
 ): Promise<T> {
   const controlador = new AbortController();
-  const temporizador = setTimeout(() => controlador.abort(), TIMEOUT_MS);
+  const temporizador = setTimeout(() => controlador.abort(), timeoutMs);
 
   try {
     const respuesta = await fetch(`${API_URL}${path}`, {

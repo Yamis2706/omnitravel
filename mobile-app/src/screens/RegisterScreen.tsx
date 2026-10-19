@@ -136,11 +136,17 @@ export function RegisterScreen() {
       });
 
       // El perfil de accesibilidad sigue siendo 100 % local (Ley 1581).
+      // Id de la cuenta dueña del perfil: fila `usuario` o UUID de Auth.
+      const idCuenta =
+        resultado.perfil?.id_usuario != null
+          ? String(resultado.perfil.id_usuario)
+          : (resultado.idAuthSupabase ?? undefined);
       guardarPerfil({
         nombre: nombre.trim(),
         necesidades,
         filtrosActivos: [],
         rol: 'viajero',
+        idCuenta,
       });
 
       if (Platform.OS === 'ios') {
@@ -165,6 +171,12 @@ export function RegisterScreen() {
   };
 
   const irAInicioSesion = () => {
+    // Login es la pantalla raíz del flujo sin sesión: si Registro se abrió
+    // encima, basta con volver; si no, navega explícitamente.
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
     navigation.navigate('Login');
   };
 

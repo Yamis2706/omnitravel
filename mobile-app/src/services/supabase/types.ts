@@ -58,6 +58,8 @@ export interface ResultadoRegistro {
 export interface ResultadoSesion {
   /** Fila de `usuario` si pudo leerse; null si la política SELECT está pendiente. */
   perfil: UsuarioOmniTravel | null;
+  /** UUID en auth.users; permite identificar la cuenta sin la fila `usuario`. */
+  idAuthSupabase?: string | null;
   /** Aviso informativo (p. ej. RLS pendiente) — no es un error. */
   aviso?: string;
 }

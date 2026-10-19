@@ -40,6 +40,7 @@ describe('construirSolicitudValhalla', () => {
         expect(solicitud.costing).toBe('pedestrian');
         expect(solicitud.costing_options.pedestrian).toEqual({});
         expect(solicitud.language).toBe('es-ES');
+        expect(solicitud.alternates).toBe(1);
         expect(solicitud.locations).toEqual([
             { lat: 4.537, lon: -75.675 },
             { lat: 4.53389, lon: -75.68111 },
@@ -138,5 +139,81 @@ describe('normalizarRespuestaValhalla', () => {
         );
         expect(ruta.pasos).toEqual([]);
         expect(ruta.shape).toBeUndefined();
+    });
+
+    it('adjunta la ruta alternativa cuando el motor la devuelve (alternates)', () => {
+        const crudo = {
+            trip: {
+                summary: { length: 1.2, time: 900 },
+                legs: [
+                    {
+                        shape: 'principal',
+                        maneuvers: [
+                            { type: 1, instruction: 'Camina al norte.', length: 1.2 },
+                        ],
+                    },
+                ],
+            },
+            alternates: [
+                {
+                    trip: {
+                        summary: { length: 1.8, time: 1500 },
+                        legs: [
+                            {
+                                shape: 'alternativa',
+                                maneuvers: [
+                                    {
+                                        type: 8,
+                                        instruction: 'Continúa por la avenida.',
+                                        length: 1.8,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            ],
+            warnings: [],
+        };
+
+        const ruta = normalizarRespuestaValhalla(crudo, 'peatonal');
+        expect(ruta.distanciaKm).toBe(1.2);
+        expect(ruta.alternativa).toBeDefined();
+        expect(ruta.alternativa?.distanciaKm).toBe(1.8);
+        expect(ruta.alternativa?.duracionMin).toBe(25);
+        expect(ruta.alternativa?.shape).toBe('alternativa');
+        expect(ruta.alternativa?.pasos).toEqual([
+            { tipo: 8, instruccion: 'Continúa por la avenida.', distanciaKm: 1.8 },
+        ]);
+        // La alternativa no hereda los avisos de la ruta principal.
+        expect(ruta.alternativa?.advertencias).toEqual([]);
+    });
+
+    it('omite alternativas malformadas sin romper la ruta principal', () => {
+        const crudo = {
+            trip: {
+                summary: { length: 1.2, time: 900 },
+                legs: [],
+            },
+            alternates: [
+                { trip: { summary: { time: 900 } } }, // sin length
+                'basura',
+                null,
+            ],
+        };
+
+        const ruta = normalizarRespuestaValhalla(crudo, 'peatonal');
+        expect(ruta.alternativa).toBeUndefined();
+        expect(ruta.distanciaKm).toBe(1.2);
+    });
+
+    it('no adjunta alternativa cuando el motor no la incluye', () => {
+        const ruta = normalizarRespuestaValhalla(
+            {
+                trip: { summary: { length: 1.2, time: 900 }, legs: [] },
+            },
+            'peatonal',
+        );
+        expect(ruta.alternativa).toBeUndefined();
     });
 });

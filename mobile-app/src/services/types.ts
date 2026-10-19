@@ -94,6 +94,12 @@ export interface ResultadoRuta {
   pasos?: PasoRuta[];
   /** Advertencias del motor y del backend (RNF-27). */
   advertencias?: string[];
+  /**
+   * Camino alternativo del mismo par origen/destino (Valhalla `alternates`
+   * vía backend). La app lo muestra al pulsar «Recalcular ruta» para no
+   * repetir el mismo trayecto.
+   */
+  alternativa?: ResultadoRuta;
 }
 
 /** Restricciones de accesibilidad enviadas al motor de ruteo (Proceso 2). */
@@ -171,3 +177,23 @@ export interface ReporteModeracion {
 
 /** Acción ejecutiva del moderador sobre un reporte (M05). */
 export type AccionModeracion = 'aprobado' | 'rechazado';
+
+/** Estado físico de un reporte en la tabla `reporte`. */
+export type EstadoReporte =
+  'pendiente_validacion' | 'en_revision' | 'publicado' | 'rechazado';
+
+/**
+ * Resumen de un reporte comunitario para "Mis reportes" (U12) y para los
+ * marcadores de barreras del mapa (U06). Se alimenta de la lectura pública de
+ * `reporte` + el conteo de confirmaciones de la tabla `confirmacion`.
+ */
+export interface ReporteResumen {
+  id: string;
+  poiId: string;
+  tipo: string;
+  estado: string;
+  descripcion: string;
+  esCritico: boolean;
+  fechaCreacion: string;
+  confirmaciones: number;
+}
