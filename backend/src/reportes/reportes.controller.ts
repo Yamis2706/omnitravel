@@ -1,0 +1,46 @@
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard, UsuarioActual, type UsuarioToken } from '../auth/jwt-auth.guard';
+import { ReportesService, type DatosNuevoReporte } from './reportes.service';
+
+@Controller()
+export class ReportesController {
+  constructor(private readonly reportesService: ReportesService) { }
+
+  // POST /reportes — crear reporte (U09/U10)
+  @Post('reportes')
+  @UseGuards(JwtAuthGuard)
+  crear(@UsuarioActual() usuario: UsuarioToken, @Body() body: DatosNuevoReporte) {
+    return this.reportesService.crear(usuario.id, body);
+  }
+
+  // POST /reportes/:id/confirmaciones — confirmar (C3)
+  @Post('reportes/:id/confirmaciones')
+  @UseGuards(JwtAuthGuard)
+  confirmar(@UsuarioActual() usuario: UsuarioToken, @Param('id', ParseIntPipe) id: number) {
+    return this.reportesService.confirmar(usuario.id, String(id));
+  }
+
+  // GET /pois/:id/reporte-activo — público (ficha U08)
+  @Get('pois/:id/reporte-activo')
+  reporteActivo(@Param('id', ParseIntPipe) id: number) {
+    return this.reportesService.reporteActivo(String(id));
+  }
+
+  // GET /moderacion/reportes?estado=pendiente — moderador/administrador (M03)
+  @Get('moderacion/reportes')
+  @UseGuards(JwtAuthGuard)
+  listar(@UsuarioActual() usuario: UsuarioToken, @Query('estado') estado?: string) {
+    return this.reportesService.listarModeracion(usuario.id, estado);
+  }
+
+  // POST /moderacion/reportes/:id/decision  { accion: 'aprobado'|'rechazado', motivo? } (M05)
+  @Post('moderacion/reportes/:id/decision')
+  @UseGuards(JwtAuthGuard)
+  decidir(
+    @UsuarioActual() usuario: UsuarioToken,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { accion?: string; motivo?: string | null },
+  ) {
+    return this.reportesService.decidir(usuario.id, String(id), body?.accion, body?.motivo);
+  }
+}

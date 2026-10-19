@@ -1,21 +1,33 @@
-
 import { Module } from '@nestjs/common';
-import { DatabaseModule } from '../database/database.module';
-import { RolesGuard } from '../authorization/roles.guard';
+import { ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Rol } from '../usuarios/rol.entity';
+import { Usuario } from '../usuarios/usuario.entity';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
-import { SupabaseAuthService } from './supabase-auth.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { LIMITE_AUTH } from './limite-intentos.guard';
 
 @Module({
-    imports: [DatabaseModule],
-    providers: [                // providers permite que NestJS cree y administre RolesGuard
-        SupabaseAuthService,
-        AuthGuard,
-        RolesGuard],
-    exports: [                  // exports: permite que otros modulos que importen AuthModule puedan utilizarlo
-        SupabaseAuthService,
-        AuthGuard,
-        RolesGuard,
-    ],
-
+  imports: [
+    TypeOrmModule.forFeature([Usuario, Rol]),
+    // Almacén en memoria del límite de intentos (suficiente con una instancia).
+    ThrottlerModule.forRoot([LIMITE_AUTH]),
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow<string>('JWT_SECRET'),
+        // RNF-08: sesión con expiración ≤ 24 h.
+        signOptions: { expiresIn: '24h' },
+      }),
+    }),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, JwtAuthGuard, AuthGuard],
+  // Otros módulos usan JwtAuthGuard, que necesita JwtService.
+  exports: [JwtModule, JwtAuthGuard, AuthGuard],
 })
-export class AuthModule { }
+export class AuthModule {}

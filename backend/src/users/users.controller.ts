@@ -13,10 +13,10 @@ import {
     ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
-import type { AuthenticatedUser } from '../auth/supabase-auth.service';
+import type { AuthenticatedUser } from '../auth/authenticated-user';
 
 // Extiende el Request de Express para incluir `user`, que el AuthGuard
-// adjunta después de validar el access token de Supabase.
+// adjunta después de validar el JWT de sesión (POST /auth/login).
 type AuthenticatedRequest = Request & {
     user: AuthenticatedUser;
 };
@@ -39,7 +39,7 @@ export class UsersController {
     @ApiOperation({
         summary: 'Consultar el usuario autenticado',
         description:
-            'Devuelve los datos básicos del usuario autenticado mediante un access token de Supabase.',
+            'Devuelve los datos básicos del usuario autenticado (JWT de POST /auth/login).',
     })
     // @ApiOkResponse: documenta la respuesta exitosa (200) con los cinco
     // campos que devuelve, sus tipos y valores de ejemplo.

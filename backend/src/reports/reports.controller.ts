@@ -1,45 +1,32 @@
 
 import {
     BadRequestException,
-    Body,
     Controller,
     DefaultValuePipe,
     Get,
     Param,
     ParseIntPipe,
-    Post,
     Query,
-    Req,
     UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
-import type { AuthenticatedUser } from '../auth/supabase-auth.service';
-import { CreateReportDto } from './dto/create-report.dto';
 import { ReportsService } from './reports.service';
-import { CreateConfirmationDto } from './dto/create-confirmation.dto';
 
-type AuthenticatedRequest = Request & {
-    user: AuthenticatedUser;
-};
-
+/**
+ * Consulta de reportes (solo lectura).
+ *
+ * Crear reportes y confirmarlos se hace únicamente en `POST /reportes` y
+ * `POST /reportes/:id/confirmaciones` (módulo reportes), que aplican las
+ * reglas del Proceso 1: consenso de 3 confirmaciones, no confirmar el propio
+ * reporte y evidencias de la carpeta del autor. Tener una segunda vía de
+ * escritura permitiría saltarse esas reglas.
+ */
 @Controller('reports')
 @UseGuards(AuthGuard)
 export class ReportsController {
     constructor(
         private readonly reportsService: ReportsService,
     ) { }
-
-    @Post()
-    async create(
-        @Body() dto: CreateReportDto,
-        @Req() request: AuthenticatedRequest,
-    ) {
-        return this.reportsService.create(
-            dto,
-            request.user.id_usuario,
-        );
-    }
 
     @Get()
     async findAll(
@@ -75,24 +62,4 @@ export class ReportsController {
 
         return this.reportsService.findOne(id);
     }
-
-    @Post(':id/confirmations')
-    async createConfirmation(
-        @Param('id', ParseIntPipe) id: number,
-        @Body() dto: CreateConfirmationDto,
-        @Req() request: AuthenticatedRequest,
-    ) {
-        if (id < 1) {
-            throw new BadRequestException(
-                'El ID del reporte debe ser mayor que cero.',
-            );
-        }
-
-        return this.reportsService.createConfirmation(
-            id,
-            request.user.id_usuario,
-            dto.tipo_confirmacion,
-        );
-    }
-
 }

@@ -48,3 +48,15 @@ infra/valhalla/data/valhalla/*.tar
 
 *.tmp
 *.temp
+
+# ==========================================
+# Infraestructura local (no versionar)
+# ==========================================
+# Config de docker/BD con credenciales: se mantiene solo en local.
+# Si más adelante se quiere compartir una plantilla, crearla como
+# docker-compose.example.yml (sin contraseñas reales).
+docker-compose.yml
+docker-compose.override.yml
+docker-compose.dev.yml
+docker-compose.prod.yml
+infra/valhalla/data/valhalla/

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import type { AuthenticatedUser } from '../auth/supabase-auth.service';
+import type { AuthenticatedUser } from '../auth/authenticated-user';
 import { AppRole, ROLES_KEY } from './roles.decorator';
 
 type AuthenticatedRequest = Request & {
