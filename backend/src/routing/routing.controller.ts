@@ -1,4 +1,5 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RoutingService } from './routing.service';
 import type { RestriccionesRuta } from './valhalla-payload';
 
@@ -11,7 +12,9 @@ interface SolicitudRuta {
     restrictions?: RestriccionesRuta;
 }
 
+/** Ruteo accesible: exige sesión (la app ya maneja el vencimiento del JWT). */
 @Controller('routes')
+@UseGuards(JwtAuthGuard)
 export class RoutingController {
     constructor(private readonly routingService: RoutingService) { }
 

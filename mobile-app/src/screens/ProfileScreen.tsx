@@ -29,12 +29,11 @@ import {
 } from '../services/fotoPerfil';
 import { listarMisReportes } from '../services/reportes';
 import type { ReporteResumen } from '../services/types';
-import { useFavoritosStore } from '../store/favoritosStore';
 import {
   useProfileStore,
   type NecesidadAccesibilidad,
 } from '../store/profileStore';
-import { cerrarSesionCuenta } from '../services/api/auth';
+import { cerrarSesionCompleta } from '../services/sesion';
 import {
   calcularPuntos,
   nivelComunitario,
@@ -70,7 +69,6 @@ export function ProfileScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const perfil = useProfileStore((estado) => estado.perfil);
-  const cerrarSesion = useProfileStore((estado) => estado.cerrarSesion);
   const establecerFoto = useProfileStore((estado) => estado.establecerFoto);
   /** Cuenta dueña del perfil: elige el archivo de foto propio en pantalla. */
   const idCuenta = useProfileStore((estado) => estado.perfil?.idCuenta);
@@ -211,9 +209,7 @@ export function ProfileScreen() {
           style: 'destructive',
           onPress: () => {
             // Borra también el token de sesión del dispositivo.
-            void cerrarSesionCuenta();
-            useFavoritosStore.getState().reiniciar();
-            cerrarSesion();
+            void cerrarSesionCompleta();
           },
         },
       ],

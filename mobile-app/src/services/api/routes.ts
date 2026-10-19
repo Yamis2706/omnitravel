@@ -3,7 +3,7 @@ import {
   normalizarRespuestaRuta,
 } from '../../utils/ruta';
 import type { Coordenada, ResultadoRuta, RestriccionesRuta } from '../types';
-import { apiFetch } from './client';
+import { ApiError, apiFetch } from './client';
 
 /**
  * Servicio de rutas accesibles (Proceso 2).
@@ -197,7 +197,12 @@ export async function calcularRutaAccesible(
       normalizarRespuestaRuta(datos),
       restriccionesEfectivas,
     );
-  } catch {
+  } catch (error) {
+    // Sesión vencida: el cliente ya cerró la sesión; no se disfraza con la
+    // reserva (la ruta exige cuenta).
+    if (error instanceof ApiError && error.status === 401) {
+      throw error;
+    }
     // Backend ausente (típico en demo local): continúa con la reserva.
   }
 
