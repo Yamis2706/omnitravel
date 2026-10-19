@@ -1,61 +1,22 @@
-import { subirEvidencia, urlPublicaEvidencia } from '../services/evidencias';
+import { base64AArrayBuffer } from '../services/evidencias';
 
-const mockApiFetch = jest.fn();
-jest.mock('../services/api/client', () => ({
-  API_URL: 'http://api.test',
-  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
-}));
-jest.mock('expo-image-picker', () => ({}));
+jest.mock('../services/supabase', () => ({ supabase: {} }));
 
-const FOTO = {
-  uri: 'file:///foto.jpg',
-  base64: '/9j/AAAA',
-  mimeType: 'image/jpeg',
-};
-
-beforeEach(() => mockApiFetch.mockReset());
-
-describe('subirEvidencia', () => {
-  it('envía la foto en base64 a POST /evidencias con un timeout amplio', async () => {
-    mockApiFetch.mockResolvedValue({ storageKey: '7/1700000000000-abc.jpg' });
-
-    await expect(subirEvidencia(FOTO)).resolves.toEqual({
-      storageKey: '7/1700000000000-abc.jpg',
-    });
-
-    const [ruta, init, timeout] = mockApiFetch.mock.calls[0];
-    expect(ruta).toBe('/evidencias');
-    expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({
-      base64: '/9j/AAAA',
-      mimeType: 'image/jpeg',
-    });
-    expect(timeout).toBeGreaterThanOrEqual(30000);
+describe('base64AArrayBuffer', () => {
+  it('decodifica base64 ASCII a ArrayBuffer', () => {
+    const buffer = base64AArrayBuffer('aG9sYQ==');
+    expect(new TextDecoder().decode(buffer)).toBe('hola');
   });
 
-  it('sin sesión pide iniciar sesión', async () => {
-    mockApiFetch.mockRejectedValue(
-      new Error('USUARIO_NO_VINCULADO: Inicia sesión para continuar.'),
-    );
-    await expect(subirEvidencia(FOTO)).rejects.toThrow(
-      'Necesitas una sesión activa para adjuntar la foto de evidencia.',
-    );
+  it('decodifica base64 vacío a un buffer vacío', () => {
+    expect(base64AArrayBuffer('').byteLength).toBe(0);
   });
 
-  it('cualquier otro fallo se muestra con un mensaje amable', async () => {
-    mockApiFetch.mockRejectedValue(
-      new Error('FILE_REJECTED: La foto supera los 5 MB.'),
-    );
-    await expect(subirEvidencia(FOTO)).rejects.toThrow(
-      'No pudimos subir la foto. Revisa tu conexión e inténtalo de nuevo.',
-    );
-  });
-});
-
-describe('urlPublicaEvidencia', () => {
-  it('construye la URL de lectura del backend', () => {
-    expect(urlPublicaEvidencia('7/1700000000000-abc.jpg')).toBe(
-      'http://api.test/evidencias/archivo/7/1700000000000-abc.jpg',
-    );
+  it('preserva bytes binarios (imagen JPEG truncada)', () => {
+    // Cabecera JPEG: FF D8 FF (base64: /9j/)
+    const buffer = new Uint8Array(base64AArrayBuffer('/9j/'));
+    expect(buffer[0]).toBe(0xff);
+    expect(buffer[1]).toBe(0xd8);
+    expect(buffer[2]).toBe(0xff);
   });
 });

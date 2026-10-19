@@ -4,7 +4,7 @@ import {
   mapearReporteModeracion,
 } from '../services/reportes';
 
-jest.mock('../services/api/client', () => ({ apiFetch: jest.fn() }));
+jest.mock('../services/supabase', () => ({ supabase: {} }));
 
 describe('mapearErrorReporte', () => {
   it('extrae el código y el mensaje de la convención "CODIGO: mensaje"', () => {

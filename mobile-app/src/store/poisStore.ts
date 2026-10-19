@@ -7,8 +7,9 @@ import type { CaracteristicaAccesibilidad, Poi } from '../services/types';
 /**
  * Estado de POIs del mapa (U06/U08).
  *
- * Carga única por arranque desde el backend (`GET /mapa`, PostgreSQL en AWS
- * RDS) con degradación a mocks tipados cuando el backend no responde. No se persiste: los datos de la BD se releen al abrir el
+ * Carga única por arranque desde la BD del equipo (Supabase OmniTravel) con
+ * degradación a mocks tipados cuando la BD está inaccesible (p. ej. políticas
+ * RLS pendientes). No se persiste: los datos de la BD se releen al abrir el
  * mapa para reflejar el crowdsourcing vigente.
  */
 interface EstadoPois {

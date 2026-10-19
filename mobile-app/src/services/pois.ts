@@ -1,4 +1,4 @@
-import { apiFetch } from './api/client';
+import { supabase } from './supabase';
 import { leerCoordenada } from './coordenadas';
 import { POIS_MOCK } from './mocks/pois';
 import { CATALOGO_CARACTERISTICAS } from './mocks/catalog';
@@ -13,20 +13,20 @@ import type {
 } from './types';
 
 /**
- * Fuente de datos real del módulo Viajero/Comunidad: `GET /mapa` del
- * backend, que lee la BD OmniTravel en PostgreSQL (AWS RDS) y devuelve las
- * filas de `poi`, `caracteristica_accesibilidad`, `valor_accesibilidad_poi`,
- * `retroalimentacion`, `reporte` y `confirmacion`.
+ * Fuente de datos real del módulo Viajero/Comunidad: lectura directa del
+ * proyecto Supabase OmniTravel del equipo (tablas `poi`,
+ * `caracteristica_accesibilidad`, `valor_accesibilidad_poi`,
+ * `retroalimentacion`, `reporte` y `confirmacion`).
  *
  * Contrato del front intacto (`services/types.ts`): los mapeadores traducen
- * el esquema físico de la BD del equipo al modelo del C4. Cuando el backend
- * no responde o la BD está vacía se degradan los datos a los mocks tipados
- * para que la demo no se rompa; el estado lo comunica `cargarDatosMapa()`
- * con `fuente: 'mock'` y una advertencia.
+ * el esquema físico de la BD del equipo al modelo del C4. Cuando la BD aún
+ * no es legible (p. ej. políticas RLS pendientes de aprobación) se degradan
+ * los datos a los mocks tipados para que la demo no se rompa; el estado lo
+ * comunica `cargarDatosMapa()` con `fuente: 'mock'` y una advertencia.
  */
 
 /** Origen declarado de los datos tras cada carga. */
-export type FuenteDatos = 'backend' | 'mock';
+export type FuenteDatos = 'supabase' | 'mock';
 
 /** Filas crudas de la BD (mismos nombres de columnas del esquema físico). */
 interface FilaPoi {
@@ -155,21 +155,24 @@ function capitalizar(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
-/** Respuesta de `GET /mapa`: filas con los nombres de columna de la BD. */
-interface RespuestaMapa {
-  caracteristicas: FilaCaracteristica[];
-  pois: FilaPoi[];
-  valores: FilaValor[];
-  retroalimentacion: FilaRetroalimentacion[];
-  reportes: FilaReporte[];
-  confirmaciones: FilaConfirmacion[];
+/** Consulta de tabla con mensaje de error homogéneo. */
+async function seleccionar<T>(tabla: string, seleccion: string): Promise<T[]> {
+  const { data, error } = await supabase.from(tabla).select(seleccion);
+  if (error) {
+    throw new Error(`No se pudo leer ${tabla}: ${error.message}`);
+  }
+  return (data ?? []) as T[];
 }
 
 /** Catálogo del equipo traducido a tokens estables del front. */
-function obtenerCatalogo(filas: FilaCaracteristica[]): {
+async function obtenerCatalogo(): Promise<{
   catalogo: CaracteristicaAccesibilidad[];
   idPorNumerico: Map<number, string>;
-} {
+}> {
+  const filas = await seleccionar<FilaCaracteristica>(
+    'caracteristica_accesibilidad',
+    'id_caracteristica, nombre, descripcion, tipo_valor, activa',
+  );
   const activas = filas.filter((fila) => fila.activa);
   if (activas.length === 0) {
     throw new Error('Catálogo de accesibilidad vacío en la BD.');
@@ -265,22 +268,34 @@ function mapearPois(
 }
 
 /**
- * Carga los datos del equipo (BD OmniTravel vía backend). Si la lectura
- * falla o la BD está vacía, degrada a los mocks del repositorio con una advertencia clara
+ * Carga los datos del equipo (BD OmniTravel). Si la lectura falla o la BD
+ * está vacía, degrada a los mocks del repositorio con una advertencia clara
  * para no bloquear la entrega/demos.
  */
 export async function cargarDatosMapa(): Promise<DatosMapa> {
   try {
-    const {
-      caracteristicas,
-      pois: filasPoi,
-      valores: filasValor,
-      retroalimentacion: filasRetro,
-      reportes: filasReporte,
-      confirmaciones: filasConfirmacion,
-    } = await apiFetch<RespuestaMapa>('/mapa');
+    const { catalogo, idPorNumerico } = await obtenerCatalogo();
 
-    const { catalogo, idPorNumerico } = obtenerCatalogo(caracteristicas);
+    const [filasValor, filasPoi, filasRetro, filasReporte, filasConfirmacion] =
+      await Promise.all([
+        seleccionar<FilaValor>(
+          'valor_accesibilidad_poi',
+          'id_valor, poi_id, caracteristica_id, valor_texto, valor_numerico, valor_booleano, fecha_actualizacion',
+        ),
+        seleccionar<FilaPoi>(
+          'poi',
+          'id_poi, nombre, descripcion, tipo, direccion, ubicacion, estado, fecha_creacion, fecha_actualizacion',
+        ),
+        seleccionar<FilaRetroalimentacion>(
+          'retroalimentacion',
+          'id_retroalimentacion, usuario_id, poi_id, calificacion, comentario, fecha',
+        ),
+        seleccionar<FilaReporte>('reporte', 'id_reporte, poi_id, tipo, estado'),
+        seleccionar<FilaConfirmacion>(
+          'confirmacion',
+          'id_confirmacion, reporte_id, usuario_id, tipo_confirmacion',
+        ),
+      ]);
 
     if (filasPoi.length === 0) {
       throw new Error('Sin POIs publicados en la BD.');
@@ -329,7 +344,7 @@ export async function cargarDatosMapa(): Promise<DatosMapa> {
         confirmacionesPorPoi,
       ),
       catalogo,
-      fuente: 'backend',
+      fuente: 'supabase',
     };
   } catch (error) {
     const motivo =
@@ -340,8 +355,8 @@ export async function cargarDatosMapa(): Promise<DatosMapa> {
       fuente: 'mock',
       advertencia:
         `Datos de demostración (motivo: ${motivo}). ` +
-        'Revisa que el backend esté corriendo y que EXPO_PUBLIC_API_URL ' +
-        'apunte a él.',
+        'Revisa las políticas RLS pendientes del equipo de datos ' +
+        '(docs/gestion/supabase-sara/).',
     };
   }
 }
