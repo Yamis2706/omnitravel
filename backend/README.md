@@ -1,29 +1,19 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# OmniTravel — Backend (NestJS)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API de OmniTravel: autenticación propia (bcrypt + JWT), mapa, reportes con
+consenso comunitario, moderación, evidencias y ruteo accesible con Valhalla.
+Integra el trabajo de las ramas `feature/conexion_bd_yamis` (backend que usa la
+app) y `main` (roles, Swagger, diagnóstico y consultas de solo lectura).
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Puesta en marcha
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+```bash
+nvm use            # Node 24 (.nvmrc): NestJS 12 se distribuye como ESM
+npm ci
+cp .env.example .env
+npm run start:dev  # http://localhost:3000 — documentación en /api/docs
+npm test           # pruebas unitarias
+```
 
 ## Base de datos — PostgreSQL en AWS RDS
 
@@ -37,7 +27,10 @@ Variables en `backend/.env` (plantilla en `.env.example`):
 |---|---|
 | `DATABASE_URL` | `postgresql://USUARIO:CONTRASEÑA@HOST.rds.amazonaws.com:5432/omnitravel_db` |
 | `DB_SSL` | `true` para RDS |
-| `JWT_SECRET` | firma de los tokens de sesión |
+| `DB_SSL_CA` | opcional: certificado de la CA de RDS (ruta a un `.pem` o el certificado pegado) para verificar el servidor |
+| `JWT_SECRET` | firma de los tokens de sesión (≥ 32 caracteres; en producción el backend no arranca con uno débil) |
+| `CORS_ORIGINS` | opcional: orígenes web permitidos; por defecto Expo web local |
+| `OBSERVE_APP_KEY` / `OBSERVE_APP_SECRET` | opcional: activa la telemetría `@nestjs/observe` |
 | `EVIDENCIAS_DIR` | carpeta de fotos (temporal hasta S3; por defecto `uploads/evidencia`) |
 
 Migraciones SQL aditivas en `sql/` (ej. `001-reporte-es-critico.sql`).
@@ -56,6 +49,32 @@ Migraciones SQL aditivas en `sql/` (ej. `001-reporte-es-critico.sql`).
 | `POST` | `/moderacion/reportes/:id/decision` | JWT moderador | Aprobar/rechazar con motivo (tabla `moderacion`) |
 | `POST` | `/evidencias` | JWT | Subir foto `{ base64, mimeType }` (JPG/PNG/WEBP ≤ 5 MB) |
 | `GET` | `/evidencias/archivo/:usuario/:archivo` | público | Leer foto |
+| `POST` | `/routes` | público | Ruta peatonal accesible (ver abajo) |
+| `GET` | `/health` | público | Estado del proceso |
+| `GET` | `/users/me` | JWT | Cuenta autenticada con su rol vigente |
+| `GET` | `/pois?tipo=&search=&page=&limit=` | JWT | POIs publicados, paginados |
+| `GET` | `/pois/nearby?lat=&lon=&radio=&page=&limit=` | JWT | POIs cercanos (PostGIS) |
+| `GET` | `/pois/:id` | JWT | Detalle de un POI publicado |
+| `GET` | `/reports?page=&limit=` | JWT | Reportes paginados (solo lectura) |
+| `GET` | `/reports/:id` | JWT | Detalle de un reporte (solo lectura) |
+| `GET` | `/database/diagnostic` | JWT administrador | Versión de PostgreSQL y PostGIS |
+
+> Crear y confirmar reportes se hace **solo** con `POST /reportes` y
+> `POST /reportes/:id/confirmaciones`, que aplican el consenso de 3
+> confirmaciones y prohíben confirmar el propio reporte. Las versiones de
+> escritura de `/reports` se retiraron al integrar `main` para no tener una
+> segunda vía que se saltara esas reglas.
+
+### Autenticación y roles
+
+- `POST /auth/login` y `POST /auth/register` devuelven un JWT (24 h). Límite:
+  10 intentos por minuto por IP (`429 DEMASIADOS_INTENTOS`).
+- `JwtAuthGuard` protege los módulos de la app (reportes, moderación, evidencias).
+- `AuthGuard` (módulos pois/reports/users/diagnóstico) además relee la cuenta y
+  su rol en la BD en cada petición: un rol revocado o una cuenta suspendida
+  dejan de valer de inmediato.
+- `@Roles('administrador', …)` + `RolesGuard` restringen por rol.
+- Swagger en `/api/docs` (botón *Authorize* con el JWT).
 
 Los errores de negocio llegan como `message: "CODIGO: mensaje"` (ej.
 `AUTOCONFIRMACION: No puedes confirmar tu propio reporte.`).

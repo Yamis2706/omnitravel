@@ -7,6 +7,7 @@ import { Rol } from '../usuarios/rol.entity';
 import { Usuario } from '../usuarios/usuario.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AuthGuard } from './auth.guard';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { LIMITE_AUTH } from './limite-intentos.guard';
 
@@ -25,8 +26,8 @@ import { LIMITE_AUTH } from './limite-intentos.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard],
+  providers: [AuthService, JwtAuthGuard, AuthGuard],
   // Otros módulos usan JwtAuthGuard, que necesita JwtService.
-  exports: [JwtModule, JwtAuthGuard],
+  exports: [JwtModule, JwtAuthGuard, AuthGuard],
 })
 export class AuthModule {}

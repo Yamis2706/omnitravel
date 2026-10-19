@@ -10,6 +10,11 @@ import { HealthModule } from './health/health.module';
 import { MapaModule } from './mapa/mapa.module';
 import { ReportesModule } from './reportes/reportes.module';
 import { RoutingModule } from './routing/routing.module';
+import { DatabaseModule } from './database/database.module';
+import { DatabaseDiagnosticModule } from './database/database-diagnostic.module';
+import { PoisModule } from './pois/pois.module';
+import { ReportsModule } from './reports/reports.module';
+import { UsersModule } from './users/users.module';
 import { opcionesSsl, telemetriaActiva } from './config/seguridad';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -41,12 +46,18 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
           }),
         ]
       : []),
+    DatabaseModule,
     AuthModule,
     EvidenciasModule,
     HealthModule,
     MapaModule,
     ReportesModule,
     RoutingModule,
+    // Módulos de Jhon (main): roles, diagnóstico y consultas de solo lectura.
+    DatabaseDiagnosticModule,
+    PoisModule,
+    ReportsModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -57,11 +57,20 @@ describe('opcionesSsl', () => {
     });
   });
 
-  it('con CA verifica el servidor y restaura los saltos de línea', () => {
-    expect(opcionesSsl('true', 'L1\\nL2')).toEqual({
-      ca: 'L1\nL2',
+  it('con el certificado pegado verifica el servidor y restaura los saltos de línea', () => {
+    expect(opcionesSsl('true', '-----BEGIN CERTIFICATE-----\\nABC')).toEqual({
+      ca: '-----BEGIN CERTIFICATE-----\nABC',
       rejectUnauthorized: true,
     });
+  });
+
+  it('con una ruta lee el archivo .pem (formato de main)', () => {
+    const leer = jest.fn().mockReturnValue('PEM DEL ARCHIVO');
+    expect(opcionesSsl('TRUE', 'certs/global-bundle.pem', leer)).toEqual({
+      ca: 'PEM DEL ARCHIVO',
+      rejectUnauthorized: true,
+    });
+    expect(leer).toHaveBeenCalledWith('certs/global-bundle.pem');
   });
 });
 

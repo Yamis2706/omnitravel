@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 /**
  * Ajustes de seguridad leídos del entorno, en un solo lugar y fáciles de probar.
  * Los valores por defecto mantienen el comportamiento de desarrollo actual.
@@ -52,17 +55,26 @@ export function revisarSecretoJwt(
  * TLS hacia PostgreSQL. Con DB_SSL_CA (certificado de la CA de AWS RDS) se
  * verifica la identidad del servidor; sin él la conexión va cifrada pero sin
  * verificar, que es el comportamiento que el equipo usa hoy.
+ *
+ * DB_SSL_CA admite el certificado pegado (con \n escapados) o la ruta a un
+ * archivo .pem (forma que usaba la rama main, p. ej. `certs/global-bundle.pem`).
  */
 export function opcionesSsl(
   dbSsl: string | undefined,
   ca: string | undefined,
+  leerArchivo: (ruta: string) => string = (ruta) =>
+    readFileSync(resolve(process.cwd(), ruta), 'utf8'),
 ): false | { ca?: string; rejectUnauthorized: boolean } {
-  if (dbSsl !== 'true') {
+  if (dbSsl?.toLowerCase() !== 'true') {
     return false;
   }
-  return ca
-    ? { ca: ca.replace(/\\n/g, '\n'), rejectUnauthorized: true }
-    : { rejectUnauthorized: false };
+  if (!ca) {
+    return { rejectUnauthorized: false };
+  }
+  const certificado = ca.includes('BEGIN CERTIFICATE')
+    ? ca.replace(/\\n/g, '\n')
+    : leerArchivo(ca);
+  return { ca: certificado, rejectUnauthorized: true };
 }
 
 /** La telemetría externa solo se activa si el equipo define sus credenciales. */
