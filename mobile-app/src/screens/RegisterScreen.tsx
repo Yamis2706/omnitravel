@@ -73,8 +73,8 @@ export function validarContrasena(contrasena: string): boolean {
 /**
  * U03 — Registro y Privacidad (Habeas Data).
  *
- * La cuenta se crea real en Supabase Auth del proyecto OmniTravel del equipo
- * (y se vincula a la tabla `usuario` cuando las políticas RLS lo permiten).
+ * La cuenta se crea en el backend (`POST /auth/register`, contraseña con
+ * bcrypt en la tabla `usuario`) y la sesión queda iniciada con su JWT.
  * El perfil de accesibilidad se guarda cifrado en el dispositivo y NUNCA se
  * envía al servidor (Ley 1581, RNF-07). Configuración en una sola pantalla
  * (RNF-13).

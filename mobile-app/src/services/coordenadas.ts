@@ -1,12 +1,13 @@
 /**
  * Lectura de coordenadas desde la serialización de `geography(Point,4326)`.
  *
- * PostgREST (REST de Supabase) entrega la columna `poi.ubicacion` como WKB
- * hex little-endian CON SRID (verificado en la BD del equipo):
+ * El backend (`GET /mapa`) entrega `poi.ubicacion` como GeoJSON
+ * (`ST_AsGeoJSON`). Se conservan también los formatos WKB/WKT por si los
+ * datos llegan de cargas manuales; ejemplo de WKB hex little-endian con SRID:
  *   `0101000020E6100000508D976E12EB52C0A4703D0AD7231240`
  *    orden=01 · tipo=Point(01) · SRID=4326(E6100000) · X · Y
  *
- * Módulo puro (sin dependencias del cliente Supabase) para uso testable.
+ * Módulo puro (sin dependencias de red) para uso testable.
  */
 
 export interface CoordenadaGeografica {

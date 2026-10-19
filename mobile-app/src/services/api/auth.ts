@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import type { RolUsuario } from '../types';
-import { apiFetch, CLAVE_TOKEN } from './client';
+import { ApiError, apiFetch, CLAVE_TOKEN } from './client';
 
 /**
  * Autenticación contra el backend OmniTravel (`POST /auth/register` y
@@ -65,18 +65,35 @@ export function rolDeUsuarioId(rolId?: number | null): RolUsuario {
   return 'viajero';
 }
 
+/**
+ * Quita el código técnico del mensaje del backend (`'CODIGO: texto'`), que
+ * las pantallas muestran tal cual a la persona.
+ */
+export function mensajeLegible(mensaje: string): string {
+  return mensaje.replace(/^[A-Z][A-Z0-9_]*:\s*/, '').trim() || mensaje;
+}
+
 async function autenticar(
   ruta: '/auth/register' | '/auth/login',
   email: string,
   contrasena: string,
 ): Promise<UsuarioOmniTravel> {
-  const { token, usuario } = await apiFetch<RespuestaSesion>(ruta, {
-    method: 'POST',
-    body: JSON.stringify({
-      email: email.trim().toLowerCase(),
-      password: contrasena,
-    }),
-  });
+  let respuesta: RespuestaSesion;
+  try {
+    respuesta = await apiFetch<RespuestaSesion>(ruta, {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password: contrasena,
+      }),
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw new ApiError(mensajeLegible(error.message), error.status);
+    }
+    throw error;
+  }
+  const { token, usuario } = respuesta;
   await SecureStore.setItemAsync(CLAVE_TOKEN, token);
   return usuario;
 }

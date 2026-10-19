@@ -57,8 +57,8 @@ type EstadoPermiso = 'pendiente' | 'concedido' | 'denegado';
  *   La alternativa solo-OSM con `mapType="none"` + `UrlTile` dejó el lienzo
  *   vacío en un Android real (issue react-native-maps #5413, cerrado sin
  *   fix), por lo que se abandonó para la demo.
- * - POIs de la BD del equipo (Supabase OmniTravel) con degradación a datos
- *   de demostración si la lectura aún no está habilitada.
+ * - POIs desde el backend (`GET /mapa`) con degradación a datos de
+ *   demostración si el backend no responde.
  * - Filtros U05 generados desde el catálogo de características.
  * - Ruteo real contra `POST /routes` del backend, con errores visibles
  *   y anunciados (RNF-14, RNF-17).
