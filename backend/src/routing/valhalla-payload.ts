@@ -59,6 +59,12 @@ export interface RutaNormalizada {
     shape?: string;
     pasos: PasoRutaNormalizado[];
     advertencias: string[];
+    /**
+     * Camino alternativo que el motor propuso para el mismo par origen/destino
+     * (Valhalla `alternates`): la app lo muestra con "Recalcular ruta" para no
+     * repetir el mismo trayecto.
+     */
+    alternativa?: RutaNormalizada;
 }
 
 interface SolicitudValhalla {
@@ -67,6 +73,12 @@ interface SolicitudValhalla {
     costing_options: { pedestrian: Record<string, string | number> };
     units: 'kilometers';
     language: 'es-ES';
+    /**
+     * `alternates: 1` → hasta 2 rutas (principal + alternativa). El uso es
+     * exactamente 2 locations, condición necesaria para alternates en
+     * Valhalla (no puede haber mejores alternativas en rutas multipunto).
+     */
+    alternates: 1;
 }
 
 /** Valida que una coordenada del body sea [latitud, longitud] finita y en rango. */
@@ -129,40 +141,35 @@ export function construirSolicitudValhalla(
             costing_options: { pedestrian: opcionesPedestrian },
             units: 'kilometers',
             language: 'es-ES',
+            alternates: 1,
         },
         advertencias,
     };
 }
 
-/**
- * Normaliza la respuesta cruda de Valhalla al contrato del front:
- * resumen, pasos (maneuvers) y advertencias del motor.
- */
-export function normalizarRespuestaValhalla(
-    crudo: unknown,
+/** Normaliza `trip.summary` + `trip.legs` de Valhalla (o una ruta alternativa). */
+function normalizarTripValhalla(
+    trip: unknown,
     perfil: PerfilRuta,
-    advertenciasExtra: string[] = [],
+    advertencias: string[],
 ): RutaNormalizada {
-    const datos = crudo as {
-        trip?: {
-            summary?: { length?: unknown; time?: unknown };
-            legs?: {
-                shape?: string;
-                maneuvers?: { type?: number; instruction?: string; length?: number }[];
-            }[];
-        };
-        warnings?: unknown;
+    const legibles = trip as {
+        summary?: { length?: unknown; time?: unknown };
+        legs?: {
+            shape?: string;
+            maneuvers?: { type?: number; instruction?: string; length?: number }[];
+        }[];
     };
 
-    const longitud = datos?.trip?.summary?.length;
-    const tiempo = datos?.trip?.summary?.time;
+    const longitud = legibles?.summary?.length;
+    const tiempo = legibles?.summary?.time;
     if (typeof longitud !== 'number' || typeof tiempo !== 'number') {
         throw new InternalServerErrorException(
             'El motor de ruteo devolvió una respuesta inesperada.',
         );
     }
 
-    const pasos: PasoRutaNormalizado[] = (datos.trip?.legs ?? []).flatMap(
+    const pasos: PasoRutaNormalizado[] = (legibles.legs ?? []).flatMap(
         (tramo) =>
             (tramo.maneuvers ?? []).map((maniobra) => ({
                 tipo: maniobra.type ?? 0,
@@ -171,18 +178,66 @@ export function normalizarRespuestaValhalla(
             })),
     );
 
+    return {
+        distanciaKm: longitud,
+        duracionMin: Math.round((tiempo / 60) * 10) / 10,
+        perfil,
+        shape: legibles.legs?.[0]?.shape,
+        pasos,
+        advertencias: [...advertencias],
+    };
+}
+
+/**
+ * Normaliza la respuesta cruda de Valhalla al contrato del front:
+ * resumen, pasos (maneuvers) y advertencias del motor. Si el motor incluyó
+ * una ruta alternativa (Valhalla `alternates`), la adjunta en `alternativa`.
+ */
+export function normalizarRespuestaValhalla(
+    crudo: unknown,
+    perfil: PerfilRuta,
+    advertenciasExtra: string[] = [],
+): RutaNormalizada {
+    const datos = crudo as {
+        trip?: unknown;
+        /** Rutas alternativas: cada entrada envuelve su propio `trip`. */
+        alternates?: unknown[];
+        warnings?: unknown;
+    };
+
     const avisosMotor = Array.isArray(datos.warnings)
         ? datos.warnings.filter(
             (aviso): aviso is string => typeof aviso === 'string',
         )
         : [];
 
-    return {
-        distanciaKm: longitud,
-        duracionMin: Math.round((tiempo / 60) * 10) / 10,
+    const ruta = normalizarTripValhalla(
+        datos.trip,
         perfil,
-        shape: datos.trip?.legs?.[0]?.shape,
-        pasos,
-        advertencias: [...avisosMotor, ...advertenciasExtra],
-    };
+        [...avisosMotor, ...advertenciasExtra],
+    );
+
+    // Alternativa válida: la primera entrada de `alternates` cuyo `trip`
+    // tenga un resumen numérico (las inválidas se omiten, no rompen la ruta).
+    const citaAlternativa = (datos.alternates ?? [])
+        .map((entrada) =>
+            entrada && typeof entrada === 'object'
+                ? (entrada as { trip?: unknown }).trip ?? entrada
+                : undefined,
+        )
+        .find((elemento) =>
+            typeof elemento === 'object' &&
+            typeof (elemento as { summary?: { length?: unknown } }).summary
+                ?.length === 'number',
+        );
+
+    if (citaAlternativa) {
+        try {
+            ruta.alternativa = normalizarTripValhalla(citaAlternativa, perfil, []);
+        } catch {
+            // Alternativa malformada: se entrega la ruta principal intacta.
+        }
+    }
+
+    return ruta;
 }

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
   Image,
@@ -11,10 +11,13 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
+import { Badge } from '../components/Badge';
+import { BrandMark } from '../components/BrandMark';
 import { CampoTexto } from '../components/CampoTexto';
 import { Card } from '../components/Card';
 import { Chip } from '../components/Chip';
@@ -27,15 +30,20 @@ import {
   type OrigenFoto,
 } from '../services/evidencias';
 import { crearReporte, ReporteError } from '../services/reportes';
+import type { IconName } from '../services/types';
 import { usePoisStore } from '../store/poisStore';
 import {
+  alternarEtiquetaRapida,
   BORRADOR_INICIAL,
   construirCaracteristicas,
   contarValoresRespondidos,
+  estaEtiquetaElegida,
+  ETIQUETAS_RAPIDAS,
   TIPOS_POI,
-  validarPaso1,
-  validarPaso2,
+  validarPasoDetalles,
+  validarPasoUbicacion,
   type BorradorReporte,
+  type EtiquetaRapida,
   type ValorBorrador,
 } from '../utils/reporteValidacion';
 import {
@@ -47,11 +55,70 @@ import {
   TOUCH_TARGET,
 } from '../utils/theme';
 
-type Paso = 1 | 2 | 3;
+type Paso = 1 | 2 | 3 | 4;
+
+const PASOS: Paso[] = [1, 2, 3, 4];
+
+const TITULOS_PASO: Record<Paso, string> = {
+  1: 'Tipo de reporte',
+  2: 'Ubicación',
+  3: 'Detalles',
+  4: 'Confirmación',
+};
+
+/** Encabezado editorial de cada paso (mockups U09/U10). */
+const ENCABEZADO_PASO: Record<
+  Paso,
+  { icono: IconName; kicker: string; titulo: string; subtitulo: string }
+> = {
+  1: {
+    icono: 'document-text-outline',
+    kicker: 'Reportar infraestructura',
+    titulo: '¿Qué deseas reportar?',
+    subtitulo:
+      'Tu aporte ayuda a una comunidad de viajeros a tener experiencias más seguras y accesibles.',
+  },
+  2: {
+    icono: 'location-sharp',
+    kicker: 'Ubicación del lugar',
+    titulo: '¿Dónde está?',
+    subtitulo:
+      'Confirma dónde está el lugar: usa tu GPS, escríbelo abajo o ajústalo manualmente.',
+  },
+  3: {
+    icono: 'document-text-outline',
+    kicker: 'Detalles del aporte',
+    titulo: 'Añade más detalles',
+    subtitulo:
+      'Cuéntanos más sobre lo que encontraste. Esta información ayuda a otros viajeros a tomar mejores decisiones.',
+  },
+  4: {
+    icono: 'checkmark-circle-outline',
+    kicker: 'Revisa antes de enviar',
+    titulo: 'Confirma tu reporte',
+    subtitulo:
+      'Verifica que la información sea correcta antes de enviarla a la comunidad.',
+  },
+};
+
+/** Límite del texto libre del aporte (contador visible en el paso Detalles). */
+const MAX_DESCRIPCION = 500;
+
+/** Paleta de las etiquetas rápidas (mockup U10): rojo=negativo, verde=positivo. */
+const PALETA_TONO = {
+  peligro: { fondo: colors.dangerSoft, tema: colors.danger },
+  alerta: { fondo: colors.warningSoft, tema: colors.warning },
+  exito: { fondo: colors.successSoft, tema: colors.success },
+} as const;
 
 interface ResultadoEnvio {
   idPoi: string;
   nombre: string;
+  direccion: string;
+  ciudad: string;
+  descripcion: string;
+  esCritico: boolean;
+  fotoUri?: string;
   avisoFoto?: string;
 }
 
@@ -72,14 +139,115 @@ function ListaErrores({ errores }: { errores: string[] }) {
   );
 }
 
+/** Barra de 4 pasos: círculos completados/activo/pendiente + conectores. */
+function BarraPasos({ paso }: { paso: Paso }) {
+  return (
+    <View
+      style={estilos.pasos}
+      accessible
+      accessibilityLabel={`Paso ${paso} de ${PASOS.length}: ${TITULOS_PASO[paso]}`}
+    >
+      <View style={estilos.pasosFila}>
+        {PASOS.map((numero) => {
+          const completado = numero < paso;
+          return (
+            <Fragment key={numero}>
+              {numero > 1 ? (
+                <View
+                  style={[
+                    estilos.pasoLinea,
+                    completado ? estilos.pasoLineaActiva : null,
+                  ]}
+                />
+              ) : null}
+              <View
+                style={[
+                  estilos.pasoCirculo,
+                  numero === paso ? estilos.pasoCirculoActivo : null,
+                  completado ? estilos.pasoCirculoCompleto : null,
+                ]}
+              >
+                {completado ? (
+                  <Ionicons name="checkmark" size={14} color={colors.white} />
+                ) : (
+                  <Text
+                    style={[
+                      estilos.pasoNumero,
+                      numero === paso ? estilos.pasoNumeroActivo : null,
+                    ]}
+                  >
+                    {numero}
+                  </Text>
+                )}
+              </View>
+            </Fragment>
+          );
+        })}
+      </View>
+      <View style={estilos.pasosEtiquetas}>
+        {PASOS.map((numero) => (
+          <Text
+            key={numero}
+            style={[
+              estilos.pasoEtiqueta,
+              numero === paso ? estilos.pasoEtiquetaActiva : null,
+            ]}
+          >
+            {TITULOS_PASO[numero]}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/** Etiqueta rápida del paso Detalles: pastilla con casilla visual de tono. */
+function EtiquetaChip({
+  etiqueta,
+  activa,
+  onPress,
+}: {
+  etiqueta: EtiquetaRapida;
+  activa: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+      accessibilityRole="checkbox"
+      accessibilityLabel={etiqueta.etiqueta}
+      accessibilityState={{ checked: activa }}
+      style={({ pressed }) => [
+        estilos.etiquetaChip,
+        { backgroundColor: PALETA_TONO[etiqueta.tono].fondo },
+        pressed ? { opacity: 0.85 } : null,
+      ]}
+    >
+      <Ionicons
+        name={activa ? 'checkmark-circle' : 'ellipse'}
+        size={16}
+        color={PALETA_TONO[etiqueta.tono].tema}
+      />
+      <Text style={estilos.etiquetaTexto} numberOfLines={2}>
+        {etiqueta.etiqueta}
+      </Text>
+    </Pressable>
+  );
+}
+
 /**
- * U09/U10 — Crear reporte colaborativo en 3 pasos:
- *   1. Tipo de reporte y lugar (nuevo con nombre/tipo, o existente a actualizar).
- *   2. Ubicación GPS, evidencia fotográfica (opcional) y descripción.
- *   3. Características de accesibilidad del catálogo + envío.
+ * U09/U10 — Crear reporte colaborativo en 4 pasos:
+ *   1. Tipo de reporte (lugar accesible o barrera/obstáculo).
+ *   2. Ubicación: lugar nuevo o existente + GPS/coordenadas.
+ *   3. Detalles: descripción, etiquetas rápidas y foto de evidencia.
+ *   4. Confirmación: resumen y envío.
  *
  * Al enviar, la RPC `crear_reporte` crea el reporte en estado pendiente: con
  * 3 confirmaciones independientes la comunidad publica el punto (Proceso 1).
+ * Las etiquetas rápidas fijan valores de características del catálogo, así
+ * que viajan dentro del mismo envío (`construirCaracteristicas`) sin RPCs
+ * nuevas.
  */
 export function ContributeScreen() {
   const navigation =
@@ -90,6 +258,7 @@ export function ContributeScreen() {
   const cargarPois = usePoisStore((estado) => estado.cargar);
 
   const [paso, setPaso] = useState<Paso>(1);
+  const [tipoElegido, setTipoElegido] = useState(false);
   const [borrador, setBorrador] = useState<BorradorReporte>(BORRADOR_INICIAL);
   const [busquedaPoi, setBusquedaPoi] = useState('');
   const [foto, setFoto] = useState<FotoCapturada | null>(null);
@@ -112,6 +281,21 @@ export function ContributeScreen() {
     }));
   };
 
+  const cambiaEtiqueta = (etiqueta: EtiquetaRapida) => {
+    setBorrador((anterior) => ({
+      ...anterior,
+      valores: alternarEtiquetaRapida(anterior.valores, etiqueta),
+    }));
+  };
+
+  /** Etiquetas válidas para el catálogo vigente de la BD. */
+  const etiquetasVisibles = useMemo(() => {
+    const ids = new Set(catalogo.map((caracteristica) => caracteristica.id));
+    return ETIQUETAS_RAPIDAS.filter((etiqueta) =>
+      ids.has(etiqueta.caracteristicaId),
+    );
+  }, [catalogo]);
+
   const poiSeleccionado = borrador.poiId
     ? pois.find((poi) => poi.id === borrador.poiId)
     : undefined;
@@ -129,20 +313,35 @@ export function ContributeScreen() {
   };
 
   const continuar = () => {
-    const errores =
-      paso === 1 ? validarPaso1(borrador) : validarPaso2(borrador);
+    let errores: string[] = [];
+    if (paso === 1) {
+      if (!tipoElegido) {
+        errores = [
+          'Elige si quieres reportar un lugar accesible o una barrera.',
+        ];
+      }
+    } else if (paso === 2) {
+      errores = validarPasoUbicacion(borrador);
+    } else if (paso === 3) {
+      errores = validarPasoDetalles(borrador);
+    }
     setErroresPaso(errores);
     if (errores.length > 0) {
       anunciar('Hay errores en el formulario. Revisa los campos marcados.');
       return;
     }
-    setPaso((anterior) => (anterior === 1 ? 2 : 3));
+    setPaso((anterior) => (anterior + 1) as Paso);
   };
 
   const retroceder = () => {
     setErroresPaso([]);
     setErrorEnvio(null);
-    setPaso((anterior) => (anterior === 3 ? 2 : 1));
+    setPaso((anterior) => Math.max(1, anterior - 1) as Paso);
+  };
+
+  const elegirTipo = (esBarrera: boolean) => {
+    actualizarBorrador({ esCritico: esBarrera });
+    setTipoElegido(true);
   };
 
   const capturarUbicacion = async () => {
@@ -223,6 +422,13 @@ export function ContributeScreen() {
           borrador.modo === 'nuevo'
             ? borrador.nombre.trim()
             : (poiSeleccionado?.nombre ?? 'el lugar'),
+        direccion:
+          borrador.direccion.trim() ||
+          (poiSeleccionado?.direccion ?? 'Sin dirección registrada'),
+        ciudad: poiSeleccionado?.ciudad ?? 'Armenia, Quindío',
+        descripcion: borrador.descripcion.trim(),
+        esCritico: borrador.esCritico,
+        fotoUri: foto?.uri,
         avisoFoto,
       });
       anunciar('Reporte enviado. Queda pendiente de validación comunitaria.');
@@ -240,6 +446,7 @@ export function ContributeScreen() {
 
   const reiniciar = () => {
     setPaso(1);
+    setTipoElegido(false);
     setBorrador(BORRADOR_INICIAL);
     setBusquedaPoi('');
     setFoto(null);
@@ -251,70 +458,144 @@ export function ContributeScreen() {
   };
 
   // ---------------------------------------------------------------------------
-  // Éxito: el reporte entró a validación comunitaria
+  // Éxito: el reporte entró a validación comunitaria (mockup de confirmación)
   // ---------------------------------------------------------------------------
   if (resultado) {
     return (
       <SafeAreaView style={estilos.pantalla} edges={['top']}>
         <ScrollView contentContainerStyle={estilos.contenido}>
-          <Card estilo={estilos.tarjetaExito}>
-            <View style={estilos.iconoExito}>
-              <Ionicons
-                name="checkmark-circle"
-                size={36}
-                color={colors.success}
-              />
+          <View style={estilos.exitoCabecera}>
+            <View style={estilos.exitoCirculo}>
+              <Ionicons name="checkmark" size={60} color={colors.white} />
             </View>
             <Text style={estilos.tituloExito} accessibilityRole="header">
-              ¡Reporte enviado!
+              ¡Reporte enviado con éxito!
             </Text>
             <Text style={estilos.textoExito}>
-              «{resultado.nombre}» quedó en validación comunitaria. Cuando 3
-              viajeros lo confirmen, se publicará automáticamente en el mapa.
+              Tu aporte ha sido recibido. Para garantizar la fiabilidad,
+              aparecerá en el mapa público cuando alcance 3 confirmaciones de la
+              comunidad.
             </Text>
-            {resultado.avisoFoto ? (
-              <View style={estilos.aviso} accessibilityLiveRegion="polite">
-                <Ionicons
-                  name="warning-outline"
-                  size={16}
-                  color={colors.warning}
-                />
-                <Text style={estilos.textoAviso}>{resultado.avisoFoto}</Text>
-              </View>
+          </View>
+
+          <Card estilo={estilos.tarjetaExitoResumen}>
+            <Text style={estilos.tituloCard} accessibilityRole="header">
+              Resumen de tu reporte
+            </Text>
+
+            {resultado.fotoUri ? (
+              <Image
+                source={{ uri: resultado.fotoUri }}
+                style={estilos.fotoResumen}
+                accessibilityRole="image"
+                accessibilityLabel="Foto de evidencia de tu reporte"
+                accessibilityIgnoresInvertColors
+              />
             ) : null}
+
+            <View style={estilos.filaResumen}>
+              <Ionicons name="location" size={18} color={colors.primary} />
+              <View style={estilos.textosResumen}>
+                <Text style={estilos.valorResumen}>{resultado.direccion}</Text>
+                <Text style={estilos.detalleResumen}>{resultado.ciudad}</Text>
+              </View>
+            </View>
+
+            <View style={estilos.filaResumen}>
+              <Ionicons
+                name="document-text-outline"
+                size={18}
+                color={colors.primary}
+              />
+              <View style={estilos.textosResumen}>
+                <Text style={estilos.etiquetaLinea}>Tipo de reporte</Text>
+                <Badge
+                  tono={resultado.esCritico ? 'alerta' : 'exito'}
+                  texto={
+                    resultado.esCritico
+                      ? 'Barrera / Obstáculo'
+                      : 'Lugar accesible'
+                  }
+                />
+              </View>
+            </View>
+
+            <View style={estilos.filaResumen}>
+              <Ionicons
+                name="chatbox-outline"
+                size={18}
+                color={colors.primary}
+              />
+              <View style={estilos.textosResumen}>
+                <Text style={estilos.etiquetaLinea}>Descripción</Text>
+                <Text style={estilos.valorResumen} numberOfLines={4}>
+                  {resultado.descripcion || 'Sin descripción.'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={estilos.filaResumen}>
+              <Ionicons name="time-outline" size={18} color={colors.primary} />
+              <View style={estilos.textosResumen}>
+                <Text style={estilos.valorResumen}>
+                  En revisión por la comunidad
+                </Text>
+                <Text style={estilos.detalleResumen}>
+                  Necesita 3 confirmaciones para ser visible en el mapa.
+                </Text>
+              </View>
+            </View>
           </Card>
 
-          <View style={estilos.botones}>
-            <AppButton
-              titulo="Ver en el mapa"
-              icono="map-outline"
-              onPress={() => {
-                const idPoi = resultado.idPoi;
-                setResultado(null);
-                reiniciar();
-                navigation.navigate('Mapa', { destinoPoiId: idPoi });
-              }}
-            />
-            <AppButton
-              titulo="Crear otro reporte"
-              variante="contorno"
-              icono="add-circle-outline"
-              onPress={reiniciar}
-            />
+          {resultado.avisoFoto ? (
+            <View style={estilos.aviso} accessibilityLiveRegion="polite">
+              <Ionicons
+                name="warning-outline"
+                size={16}
+                color={colors.warning}
+              />
+              <Text style={estilos.textoAviso}>{resultado.avisoFoto}</Text>
+            </View>
+          ) : null}
+
+          <AppButton
+            titulo="Volver al mapa"
+            icono="map-outline"
+            onPress={() => {
+              const idPoi = resultado.idPoi;
+              reiniciar();
+              navigation.navigate('Mapa', { destinoPoiId: idPoi });
+            }}
+          />
+
+          <View style={estilos.filaGracias}>
+            <Ionicons name="people" size={22} color={colors.primary} />
+            <View style={estilos.textosGracias}>
+              <Text style={estilos.tituloGracias}>
+                ¡Gracias por contribuir!
+              </Text>
+              <Text style={estilos.textoGracias}>
+                Juntos construimos un turismo más accesible e inclusivo.
+              </Text>
+            </View>
           </View>
+
+          <AppButton
+            titulo="Crear otro reporte"
+            variante="fantasma"
+            icono="add-circle-outline"
+            onPress={reiniciar}
+          />
         </ScrollView>
       </SafeAreaView>
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Wizard de 3 pasos
+  // Wizard de 4 pasos
   // ---------------------------------------------------------------------------
-  const titulosPaso: Record<Paso, string> = {
-    1: 'Tipo de reporte y lugar',
-    2: 'Evidencia y ubicación',
-    3: 'Accesibilidad del lugar',
-  };
+  const encabezadoPaso = ENCABEZADO_PASO[paso];
+  const respondidas = contarValoresRespondidos(borrador.valores);
 
   return (
     <SafeAreaView style={estilos.pantalla} edges={['top']}>
@@ -322,33 +603,25 @@ export function ContributeScreen() {
         contentContainerStyle={estilos.contenido}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={estilos.encabezado}>
-          <Text style={estilos.titulo} accessibilityRole="header">
-            Crear reporte
-          </Text>
-          <Text style={estilos.subtitulo}>
-            Ayuda a la comunidad a conocer la accesibilidad real de los lugares.
-          </Text>
+        <View style={estilos.barraMarca}>
+          {paso > 1 ? (
+            <Pressable
+              onPress={retroceder}
+              accessibilityRole="button"
+              accessibilityLabel="Atrás"
+              style={estilos.botonAtras}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.primary} />
+              <Text style={estilos.textoAtras}>Atrás</Text>
+            </Pressable>
+          ) : (
+            <View style={estilos.espacioEquilibrado} />
+          )}
+          <BrandMark tamano={28} variante="lockup" />
+          <View style={estilos.espacioEquilibrado} />
         </View>
 
-        <View
-          style={estilos.indicador}
-          accessible
-          accessibilityLabel={`Paso ${paso} de 3: ${titulosPaso[paso]}`}
-        >
-          {([1, 2, 3] as Paso[]).map((numero) => (
-            <View
-              key={numero}
-              style={[
-                estilos.puntoIndicador,
-                numero <= paso ? estilos.puntoActivo : null,
-              ]}
-            />
-          ))}
-          <Text style={estilos.textoIndicador}>
-            Paso {paso} de 3 · {titulosPaso[paso]}
-          </Text>
-        </View>
+        <BarraPasos paso={paso} />
 
         {fuente === 'mock' ? (
           <Card estilo={estilos.tarjetaAviso}>
@@ -366,11 +639,124 @@ export function ContributeScreen() {
           </Card>
         ) : null}
 
+        <View style={estilos.encabezadoPaso}>
+          <View style={estilos.kickerFila}>
+            <Ionicons
+              name={encabezadoPaso.icono}
+              size={22}
+              color={colors.primary}
+            />
+            <Text style={estilos.kicker}>{encabezadoPaso.kicker}</Text>
+          </View>
+          <Text style={estilos.tituloPaso} accessibilityRole="header">
+            {encabezadoPaso.titulo}
+          </Text>
+          <Text style={estilos.subtituloPaso}>{encabezadoPaso.subtitulo}</Text>
+        </View>
+
         {/* ------------------------------ PASO 1 ------------------------------ */}
         {paso === 1 ? (
           <>
+            <Pressable
+              onPress={() => elegirTipo(false)}
+              accessibilityRole="radio"
+              accessibilityState={{
+                selected: tipoElegido && !borrador.esCritico,
+              }}
+              accessibilityHint="Reporta un lugar que cuenta con condiciones de accesibilidad para todas las personas"
+              style={[
+                estilos.tarjetaTipo,
+                estilos.tarjetaTipoAccesible,
+                tipoElegido && !borrador.esCritico
+                  ? estilos.tarjetaTipoActiva
+                  : null,
+              ]}
+            >
+              <View style={estilos.iconoTipoAccesible}>
+                <Ionicons name="accessibility" size={26} color={colors.white} />
+              </View>
+              <View style={estilos.textosTipo}>
+                <Text style={estilos.tituloTipoAccesible}>Lugar Accesible</Text>
+                <Text style={estilos.textoTipo}>
+                  Reporta un lugar que cuenta con condiciones de accesibilidad
+                  para todas las personas.
+                </Text>
+                <View style={estilos.chipInterno}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={16}
+                    color={colors.success}
+                  />
+                  <Text style={estilos.textoChipInterno}>
+                    Ayuda a que más personas lo encuentren
+                  </Text>
+                </View>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={22}
+                color={colors.success}
+              />
+            </Pressable>
+
+            <Pressable
+              onPress={() => elegirTipo(true)}
+              accessibilityRole="radio"
+              accessibilityState={{
+                selected: tipoElegido && borrador.esCritico,
+              }}
+              accessibilityHint="Reporta una barrera u obstáculo que dificulte la movilidad o el acceso en un lugar"
+              style={[
+                estilos.tarjetaTipo,
+                estilos.tarjetaTipoBarrera,
+                tipoElegido && borrador.esCritico
+                  ? estilos.tarjetaTipoActiva
+                  : null,
+              ]}
+            >
+              <View style={estilos.iconoTipoBarrera}>
+                <Ionicons name="warning" size={26} color={colors.white} />
+              </View>
+              <View style={estilos.textosTipo}>
+                <Text style={estilos.tituloTipoBarrera}>
+                  Barrera / Obstáculo
+                </Text>
+                <Text style={estilos.textoTipo}>
+                  Reporta una barrera u obstáculo que dificulte la movilidad o
+                  el acceso en un lugar.
+                </Text>
+                <View style={estilos.chipInterno}>
+                  <Ionicons
+                    name="alert-circle"
+                    size={16}
+                    color={colors.danger}
+                  />
+                  <Text style={estilos.textoChipInterno}>
+                    Contribuye a alertar a otros viajeros
+                  </Text>
+                </View>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={22}
+                color={colors.warning}
+              />
+            </Pressable>
+
+            <ListaErrores errores={erroresPaso} />
+            <AppButton
+              titulo="Continuar"
+              icono="arrow-forward-outline"
+              onPress={continuar}
+            />
+          </>
+        ) : null}
+
+        {/* ------------------------------ PASO 2 ------------------------------ */}
+        {paso === 2 ? (
+          <>
             <View style={estilos.seccion}>
-              <Text style={estilos.tituloSeccion}>¿Qué quieres reportar?</Text>
+              <Text style={estilos.tituloBloque}>¿Cómo lo reportas?</Text>
               <View style={estilos.filaOpciones}>
                 <Pressable
                   onPress={() =>
@@ -378,7 +764,6 @@ export function ContributeScreen() {
                   }
                   accessibilityRole="radio"
                   accessibilityState={{ selected: borrador.modo === 'nuevo' }}
-                  accessibilityLabel="Un lugar nuevo Aún no aparece en el mapa"
                   accessibilityHint="Un lugar que todavía no aparece en el mapa"
                   style={[
                     estilos.opcion,
@@ -406,7 +791,6 @@ export function ContributeScreen() {
                   accessibilityState={{
                     selected: borrador.modo === 'actualizacion',
                   }}
-                  accessibilityLabel="Actualizar un lugar Ya está en el mapa"
                   accessibilityHint="Corrige o amplía los datos de un lugar del mapa"
                   style={[
                     estilos.opcion,
@@ -515,24 +899,8 @@ export function ContributeScreen() {
               </View>
             )}
 
-            <ListaErrores errores={erroresPaso} />
-            <AppButton
-              titulo="Continuar"
-              icono="arrow-forward-outline"
-              onPress={continuar}
-            />
-          </>
-        ) : null}
-
-        {/* ------------------------------ PASO 2 ------------------------------ */}
-        {paso === 2 ? (
-          <>
             <View style={estilos.seccion}>
-              <Text style={estilos.tituloSeccion}>Ubicación</Text>
-              <Text style={estilos.subtitulo}>
-                Tu ubicación se usa solo para ubicar el aporte en el mapa (Ley
-                1581); no se comparte con terceros.
-              </Text>
+              <Text style={estilos.tituloBloque}>Ubicación en el mapa</Text>
               {borrador.modo === 'actualizacion' && poiSeleccionado ? (
                 <Card estilo={estilos.tarjetaSuave}>
                   <View style={estilos.filaAviso}>
@@ -620,8 +988,70 @@ export function ContributeScreen() {
               )}
             </View>
 
+            <ListaErrores errores={erroresPaso} />
+            <View style={estilos.filaBotones}>
+              <View style={estilos.botonMitad}>
+                <AppButton
+                  titulo="Atrás"
+                  variante="contorno"
+                  icono="arrow-back-outline"
+                  onPress={retroceder}
+                />
+              </View>
+              <View style={estilos.botonMitad}>
+                <AppButton
+                  titulo="Continuar"
+                  icono="arrow-forward-outline"
+                  onPress={continuar}
+                />
+              </View>
+            </View>
+          </>
+        ) : null}
+
+        {/* ------------------------------ PASO 3 ------------------------------ */}
+        {paso === 3 ? (
+          <>
             <View style={estilos.seccion}>
-              <Text style={estilos.tituloSeccion}>
+              <TextoCampoContador
+                etiqueta={
+                  borrador.esCritico
+                    ? 'Describe la barrera o el acceso'
+                    : 'Describe el acceso del lugar'
+                }
+                placeholder="Ej. La rampa es muy inclinada y no tiene pasamanos…"
+                value={borrador.descripcion}
+                onChange={(descripcion) =>
+                  actualizarBorrador({
+                    descripcion: descripcion.slice(0, MAX_DESCRIPCION),
+                  })
+                }
+              />
+            </View>
+
+            <View style={estilos.seccion}>
+              <View style={estilos.kickerFila}>
+                <Ionicons name="pricetag" size={18} color={colors.primary} />
+                <Text style={estilos.tituloBloque}>Etiquetas rápidas</Text>
+              </View>
+              <Text style={estilos.textoSecundario}>
+                Selecciona una o más opciones que mejor describan la situación.
+                Marcan los datos de accesibilidad que viajan con tu reporte.
+              </Text>
+              <View style={estilos.chipsEtiquetas}>
+                {etiquetasVisibles.map((etiqueta) => (
+                  <EtiquetaChip
+                    key={etiqueta.id}
+                    etiqueta={etiqueta}
+                    activa={estaEtiquetaElegida(borrador.valores, etiqueta)}
+                    onPress={() => cambiaEtiqueta(etiqueta)}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <View style={estilos.seccion}>
+              <Text style={estilos.tituloBloque}>
                 Foto de evidencia (opcional)
               </Text>
               {foto ? (
@@ -671,23 +1101,69 @@ export function ContributeScreen() {
             </View>
 
             <View style={estilos.seccion}>
-              <ToggleRow
-                etiqueta="Barrera crítica o peligro"
-                descripcion="Marca si detectaste un riesgo para la accesibilidad: la moderación lo revisará con prioridad."
-                valor={borrador.esCritico}
-                onCambio={(esCritico) => actualizarBorrador({ esCritico })}
-              />
-              <CampoTexto
-                etiqueta="¿Qué encontraste?"
-                icono="chatbox-outline"
-                placeholder="Describe la entrada, el estado de la rampa, si el acceso es amplio…"
-                value={borrador.descripcion}
-                onChangeText={(descripcion) =>
-                  actualizarBorrador({ descripcion })
+              <Text style={estilos.tituloBloque}>
+                Características del lugar
+              </Text>
+              <Text style={estilos.textoSecundario}>
+                {respondidas} de {catalogo.length} respondidas. Completa lo que
+                sepas: estos datos sincronizan con las etiquetas rápidas y
+                alimentan los filtros del mapa.
+              </Text>
+              {catalogo.map((caracteristica) => {
+                const actual = borrador.valores[caracteristica.id] ?? {};
+                if (caracteristica.tipoValor === 'BOOLEANO') {
+                  return (
+                    <ToggleRow
+                      key={caracteristica.id}
+                      etiqueta={caracteristica.nombre}
+                      descripcion={caracteristica.descripcion}
+                      valor={actual.booleano ?? false}
+                      onCambio={(valor) =>
+                        actualizarValor(caracteristica.id, {
+                          ...actual,
+                          booleano: valor,
+                        })
+                      }
+                    />
+                  );
                 }
-                autoCapitalize="sentences"
-                multilinea
-              />
+                if (caracteristica.tipoValor === 'NUMERICO') {
+                  return (
+                    <CampoTexto
+                      key={caracteristica.id}
+                      etiqueta={
+                        caracteristica.unidad
+                          ? `${caracteristica.nombre} (${caracteristica.unidad})`
+                          : caracteristica.nombre
+                      }
+                      icono={caracteristica.icono}
+                      placeholder="Ej. 90"
+                      value={actual.numerico ?? ''}
+                      onChangeText={(texto) =>
+                        actualizarValor(caracteristica.id, {
+                          ...actual,
+                          numerico: texto,
+                        })
+                      }
+                      keyboardType="numeric"
+                      autoComplete="off"
+                    />
+                  );
+                }
+                return (
+                  <CampoTexto
+                    key={caracteristica.id}
+                    etiqueta={caracteristica.nombre}
+                    icono={caracteristica.icono}
+                    placeholder="Escribe un detalle"
+                    value={actual.texto ?? ''}
+                    onChangeText={(texto) =>
+                      actualizarValor(caracteristica.id, { ...actual, texto })
+                    }
+                    autoComplete="off"
+                  />
+                );
+              })}
             </View>
 
             <ListaErrores errores={erroresPaso} />
@@ -702,7 +1178,7 @@ export function ContributeScreen() {
               </View>
               <View style={estilos.botonMitad}>
                 <AppButton
-                  titulo="Continuar"
+                  titulo="Continuar a confirmación"
                   icono="arrow-forward-outline"
                   onPress={continuar}
                 />
@@ -711,102 +1187,44 @@ export function ContributeScreen() {
           </>
         ) : null}
 
-        {/* ------------------------------ PASO 3 ------------------------------ */}
-        {paso === 3 ? (
+        {/* ------------------------------ PASO 4 ------------------------------ */}
+        {paso === 4 ? (
           <>
             <View style={estilos.seccion}>
-              <Text style={estilos.tituloSeccion}>
-                Características de accesibilidad
-              </Text>
-              <Text style={estilos.textoSecundario}>
-                Responde solo lo que pudiste comprobar (
-                {contarValoresRespondidos(borrador.valores)} de{' '}
-                {catalogo.length} respondidas).
-              </Text>
-              <Card estilo={estilos.tarjetaSuave}>
-                {catalogo.map((caracteristica) => {
-                  const valor = borrador.valores[caracteristica.id] ?? {};
-                  if (caracteristica.tipoValor === 'BOOLEANO') {
-                    return (
-                      <ToggleRow
-                        key={caracteristica.id}
-                        etiqueta={caracteristica.nombre}
-                        descripcion={caracteristica.descripcion}
-                        valor={valor.booleano ?? false}
-                        onCambio={(booleano) =>
-                          actualizarValor(caracteristica.id, {
-                            ...valor,
-                            booleano,
-                          })
-                        }
-                      />
-                    );
-                  }
-                  if (caracteristica.tipoValor === 'NUMERICO') {
-                    return (
-                      <CampoTexto
-                        key={caracteristica.id}
-                        etiqueta={caracteristica.nombre}
-                        icono={caracteristica.icono}
-                        placeholder={
-                          caracteristica.unidad
-                            ? `Valor en ${caracteristica.unidad}`
-                            : 'Valor numérico'
-                        }
-                        value={valor.numerico ?? ''}
-                        onChangeText={(numerico) =>
-                          actualizarValor(caracteristica.id, {
-                            ...valor,
-                            numerico,
-                          })
-                        }
-                        keyboardType="decimal-pad"
-                        autoCapitalize="none"
-                      />
-                    );
-                  }
-                  return (
-                    <CampoTexto
-                      key={caracteristica.id}
-                      etiqueta={caracteristica.nombre}
-                      icono={caracteristica.icono}
-                      placeholder="Escribe el detalle"
-                      value={valor.texto ?? ''}
-                      onChangeText={(texto) =>
-                        actualizarValor(caracteristica.id, { ...valor, texto })
-                      }
-                      autoCapitalize="sentences"
-                    />
-                  );
-                })}
-              </Card>
-            </View>
-
-            <View style={estilos.seccion}>
-              <Text style={estilos.tituloSeccion}>Resumen</Text>
+              <Text style={estilos.tituloBloque}>Resumen</Text>
               <Card estilo={estilos.tarjetaSuave}>
                 <Text style={estilos.lineaResumen}>
                   <Text style={estilos.etiquetaResumen}>Lugar: </Text>
-                  {borrador.modo === 'nuevo'
-                    ? borrador.nombre.trim()
-                    : (poiSeleccionado?.nombre ?? 'Sin seleccionar')}
+                  <Text style={estilos.textoResumen}>
+                    {borrador.modo === 'nuevo'
+                      ? borrador.nombre.trim()
+                      : (poiSeleccionado?.nombre ?? 'Sin seleccionar')}
+                  </Text>
                 </Text>
                 <Text style={estilos.lineaResumen}>
                   <Text style={estilos.etiquetaResumen}>Tipo de reporte: </Text>
-                  {borrador.modo === 'nuevo'
-                    ? 'Lugar nuevo'
-                    : 'Actualización de un lugar existente'}
+                  {borrador.esCritico
+                    ? 'Barrera u obstáculo (revisión prioritaria)'
+                    : 'Lugar accesible'}
+                </Text>
+                <Text style={estilos.lineaResumen}>
+                  <Text style={estilos.etiquetaResumen}>Ubicación: </Text>
+                  {borrador.modo === 'actualizacion'
+                    ? 'La registrada del lugar'
+                    : borrador.lat !== null && borrador.lon !== null
+                      ? `${borrador.lat.toFixed(5)}, ${borrador.lon.toFixed(5)}`
+                      : 'Sin capturar'}
                 </Text>
                 <Text style={estilos.lineaResumen}>
                   <Text style={estilos.etiquetaResumen}>Evidencia: </Text>
                   {foto ? 'Foto adjunta' : 'Sin foto'}
                 </Text>
-                {borrador.esCritico ? (
-                  <Text style={estilos.lineaResumen}>
-                    <Text style={estilos.etiquetaResumen}>Prioridad: </Text>
-                    Barrera crítica (revisión prioritaria)
+                <Text style={estilos.lineaResumen}>
+                  <Text style={estilos.etiquetaResumen}>
+                    Datos de accesibilidad:{' '}
                   </Text>
-                ) : null}
+                  {respondidas} de {catalogo.length} respondidas
+                </Text>
               </Card>
               <Text style={estilos.textoSecundario}>
                 Tu reporte entrará en validación comunitaria: con 3
@@ -833,8 +1251,8 @@ export function ContributeScreen() {
               </View>
               <View style={estilos.botonMitad}>
                 <AppButton
-                  titulo="Enviar reporte"
-                  icono="send-outline"
+                  titulo="Enviar a la comunidad"
+                  icono="paper-plane-outline"
                   cargando={enviando}
                   deshabilitado={enviando}
                   onPress={() => void enviar()}
@@ -848,6 +1266,52 @@ export function ContributeScreen() {
   );
 }
 
+/**
+ * Campo con contenedor propio y contador «n/500» (mockup del paso Detalles).
+ */
+function TextoCampoContador({
+  etiqueta,
+  placeholder,
+  value,
+  onChange,
+}: {
+  etiqueta: string;
+  placeholder: string;
+  value: string;
+  onChange: (texto: string) => void;
+}) {
+  return (
+    <View style={estilos.contenedorDescripcion}>
+      <Text style={estilos.etiquetaDescripcion}>{etiqueta}</Text>
+      <View style={estilos.cajaDescripcion}>
+        <Ionicons
+          name="chatbox-outline"
+          size={18}
+          color={colors.textSecondary}
+          style={estilos.iconoMultilineaDescripcion}
+        />
+        <TextInput
+          style={[estilos.inputDescripcion, { minHeight: 96 }]}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          value={value}
+          onChangeText={onChange}
+          accessibilityLabel={etiqueta}
+          multiline
+          numberOfLines={4}
+          textAlignVertical="top"
+          autoCapitalize="sentences"
+          autoComplete="off"
+          maxLength={MAX_DESCRIPCION}
+        />
+      </View>
+      <Text style={estilos.contador}>
+        {value.length}/{MAX_DESCRIPCION}
+      </Text>
+    </View>
+  );
+}
+
 const estilos = StyleSheet.create({
   pantalla: {
     flex: 1,
@@ -858,41 +1322,183 @@ const estilos = StyleSheet.create({
     gap: spacing.lg,
     paddingBottom: spacing.xxl,
   },
-  encabezado: {
+  barraMarca: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  botonAtras: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    minHeight: TOUCH_TARGET,
+    paddingRight: spacing.sm,
+  },
+  textoAtras: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.semibold,
+    color: colors.primary,
+  },
+  espacioEquilibrado: {
+    width: 76,
+  },
+  pasos: {
     gap: spacing.xs,
   },
-  titulo: {
-    fontSize: fontSize.xl,
+  pasosFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pasoCirculo: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pasoCirculoActivo: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pasoCirculoCompleto: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pasoNumero: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  pasoNumeroActivo: {
+    color: colors.white,
+  },
+  pasoLinea: {
+    flex: 1,
+    height: 3,
+    borderRadius: radii.pill,
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.xs,
+  },
+  pasoLineaActiva: {
+    backgroundColor: colors.primary,
+  },
+  pasosEtiquetas: {
+    flexDirection: 'row',
+    marginTop: spacing.xs,
+  },
+  pasoEtiqueta: {
+    flex: 1,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  pasoEtiquetaActiva: {
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  encabezadoPaso: {
+    gap: spacing.xs,
+  },
+  kickerFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  kicker: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  tituloPaso: {
+    fontSize: fontSize.xxl,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
-  subtitulo: {
-    fontSize: fontSize.sm,
+  subtituloPaso: {
+    fontSize: fontSize.md,
     color: colors.textSecondary,
-  },
-  indicador: {
-    gap: spacing.xs,
-  },
-  puntoIndicador: {
-    height: 4,
-    borderRadius: radii.pill,
-    backgroundColor: colors.border,
-    flex: 1,
-  },
-  puntoActivo: {
-    backgroundColor: colors.primary,
-  },
-  textoIndicador: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    color: colors.textSecondary,
+    lineHeight: 22,
   },
   seccion: {
     gap: spacing.sm,
   },
-  tituloSeccion: {
+  tituloBloque: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  tarjetaTipo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: 1.5,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    backgroundColor: colors.white,
+  },
+  tarjetaTipoAccesible: {
+    backgroundColor: colors.successSoft,
+    borderColor: colors.successSoft,
+  },
+  tarjetaTipoBarrera: {
+    backgroundColor: colors.warningSoft,
+    borderColor: colors.warningSoft,
+  },
+  tarjetaTipoActiva: {
+    borderColor: colors.primary,
+  },
+  iconoTipoAccesible: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: colors.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconoTipoBarrera: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: colors.warning,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textosTipo: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  tituloTipoAccesible: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.success,
+  },
+  tituloTipoBarrera: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.warning,
+  },
+  textoTipo: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  chipInterno: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.white,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  textoChipInterno: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
     color: colors.textPrimary,
   },
   etiquetaGrupo: {
@@ -974,6 +1580,64 @@ const estilos = StyleSheet.create({
   campoMitad: {
     flex: 1,
   },
+  contenedorDescripcion: {
+    gap: spacing.xs,
+  },
+  etiquetaDescripcion: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  cajaDescripcion: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.white,
+  },
+  iconoMultilineaDescripcion: {
+    marginTop: spacing.sm,
+  },
+  inputDescripcion: {
+    flex: 1,
+    fontSize: fontSize.md,
+    color: colors.textPrimary,
+    paddingVertical: spacing.sm,
+  },
+  contador: {
+    alignSelf: 'flex-end',
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+  },
+  chipsEtiquetas: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  etiquetaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxWidth: '100%',
+    flexGrow: 1,
+    flexBasis: '30%',
+  },
+  etiquetaTexto: {
+    flexShrink: 1,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    color: colors.textPrimary,
+    lineHeight: 16,
+  },
   vistaFoto: {
     width: '100%',
     height: 180,
@@ -1034,34 +1698,102 @@ const estilos = StyleSheet.create({
   botonMitad: {
     flex: 1,
   },
-  tarjetaExito: {
+  exitoCabecera: {
     alignItems: 'center',
     gap: spacing.sm,
+    marginTop: spacing.md,
   },
-  iconoExito: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.pill,
-    backgroundColor: colors.successSoft,
+  exitoCirculo: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: colors.success,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tituloExito: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xxl,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
     textAlign: 'center',
+    lineHeight: 30,
   },
   textoExito: {
-    fontSize: fontSize.sm,
+    fontSize: fontSize.md,
     color: colors.textSecondary,
     textAlign: 'center',
+    lineHeight: 22,
+  },
+  tarjetaExitoResumen: {
+    gap: spacing.md,
+  },
+  tituloCard: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  fotoResumen: {
+    width: '100%',
+    height: 150,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  filaResumen: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  textosResumen: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  etiquetaLinea: {
+    fontSize: fontSize.xs,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.semibold,
+  },
+  valorResumen: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
     lineHeight: 20,
   },
-  textoSecundario: {
-    fontSize: fontSize.sm,
+  detalleResumen: {
+    fontSize: fontSize.xs,
     color: colors.textSecondary,
+  },
+  filaGracias: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+  },
+  textosGracias: {
+    flex: 1,
+    gap: 2,
+  },
+  tituloGracias: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  textoGracias: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  lineaResumen: {
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
     lineHeight: 20,
+  },
+  etiquetaResumen: {
+    fontWeight: fontWeight.semibold,
+  },
+  textoResumen: {
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
   },
   aviso: {
     flexDirection: 'row',
@@ -1072,19 +1804,9 @@ const estilos = StyleSheet.create({
     padding: spacing.md,
     alignSelf: 'stretch',
   },
-  botones: {
-    gap: spacing.sm,
-  },
-  textoResumen: {
+  textoSecundario: {
     fontSize: fontSize.sm,
-    color: colors.textPrimary,
-  },
-  lineaResumen: {
-    fontSize: fontSize.sm,
-    color: colors.textPrimary,
+    color: colors.textSecondary,
     lineHeight: 20,
-  },
-  etiquetaResumen: {
-    fontWeight: fontWeight.semibold,
   },
 });

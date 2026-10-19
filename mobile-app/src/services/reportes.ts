@@ -3,6 +3,7 @@ import type {
   AccionModeracion,
   ReporteComunitario,
   ReporteModeracion,
+  ReporteResumen,
   ResultadoConfirmacion,
   ValorCaracteristicaReporte,
   ValorPropuestoReporte,
@@ -297,14 +298,16 @@ export async function obtenerReporteDePoi(
 }
 
 /**
- * Lista de reportes para la consola de moderación (M03/M04). El backend valida
- * el rol (moderador/administrador); sin permiso responde ACCESO_DENEGADO.
+ * Lista de reportes para la consola de moderación (M03/M04). La BD valida el
+ * rol (moderador/administrador); sin permiso responde ACCESO_DENEGADO.
+ * `null` lista todos los estados (filtro «Todos» de la consola).
  */
 export async function listarReportesModeracion(
-  estado: string = 'pendiente',
+  estado: string | null = 'pendiente_validacion',
 ): Promise<ReporteModeracion[]> {
+  const consulta = estado ? `?estado=${encodeURIComponent(estado)}` : '';
   const filas = await llamarBackend<FilaReporteModeracion[]>(
-    `/moderacion/reportes?estado=${encodeURIComponent(estado)}`,
+    `/moderacion/reportes${consulta}`,
   );
   return (filas ?? []).map(mapearReporteModeracion);
 }
@@ -326,4 +329,48 @@ export async function decidirReporte(
     },
   );
   return { estado: resultado?.estado ?? accion };
+}
+
+/** Fila de `reporte` que devuelven los listados del viajero en el backend. */
+interface FilaResumenReporte {
+  id_reporte: number;
+  poi_id: number;
+  tipo: string | null;
+  estado: string;
+  descripcion: string | null;
+  es_critico: boolean | null;
+  fecha_creacion: string;
+  confirmaciones: number | null;
+}
+
+function mapearResumen(fila: FilaResumenReporte): ReporteResumen {
+  return {
+    id: String(fila.id_reporte),
+    poiId: String(fila.poi_id),
+    tipo: fila.tipo ?? 'nuevo',
+    estado: (fila.estado ?? '').trim().toLowerCase(),
+    descripcion: fila.descripcion ?? '',
+    esCritico: fila.es_critico === true,
+    fechaCreacion: fila.fecha_creacion,
+    confirmaciones: Number(fila.confirmaciones ?? 0),
+  };
+}
+
+/**
+ * Reportes creados por la sesión activa ("Mis reportes" de U12), del más
+ * reciente al más antiguo (`GET /reportes/mios`, exige sesión).
+ */
+export async function listarMisReportes(): Promise<ReporteResumen[]> {
+  const filas = await llamarBackend<FilaResumenReporte[]>('/reportes/mios');
+  return (filas ?? []).map(mapearResumen);
+}
+
+/**
+ * Barreras críticas vigentes de la comunidad (reportes con `es_critico` que
+ * no fueron rechazados). Alimenta los marcadores naranja del mapa (U06):
+ * escaleras, aceras rotas, ascensores dañados… reportados por otros viajeros.
+ */
+export async function listarBarrerasComunitarias(): Promise<ReporteResumen[]> {
+  const filas = await llamarBackend<FilaResumenReporte[]>('/reportes/barreras');
+  return (filas ?? []).map(mapearResumen);
 }

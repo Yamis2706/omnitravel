@@ -35,8 +35,7 @@ export class MapaService {
                  calificacion, comentario, fecha
           from retroalimentacion`),
         this.db.query(`
-          select id_reporte::int, poi_id::int, tipo,
-                 case estado when 'pendiente_validacion' then 'pendiente' else estado end as estado
+          select id_reporte::int, poi_id::int, tipo, estado
           from reporte`),
         this.db.query(`
           select id_confirmacion::int, reporte_id::int, usuario_id::int, tipo_confirmacion

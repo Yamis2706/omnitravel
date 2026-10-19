@@ -8,8 +8,10 @@ import { errorDominio } from '../common/errores';
  * RPC que la app usaba en Supabase (docs/gestion/supabase-sara/
  * peticiones-front-entrega2.sql) sobre el esquema de AWS:
  *
- * - `reporte.estado` en AWS usa 'pendiente_validacion'; hacia la app se
- *   expone como 'pendiente', igual que en Supabase.
+ * - `reporte.estado` usa los valores reales del CHECK de la BD
+ *   ('pendiente_validacion' | 'en_revision' | 'publicado' | 'rechazado') y la
+ *   app los recibe tal cual. Se sigue aceptando 'pendiente' (formato heredado)
+ *   como filtro de entrada.
  * - Las decisiones del moderador se registran en la tabla `moderacion`
  *   (accion 'aprobar' | 'rechazar') y en `reporte.via_resolucion`.
  */
@@ -17,15 +19,24 @@ import { errorDominio } from '../common/errores';
 const CONFIRMACIONES_PARA_PUBLICAR = 3;
 const ESTADO_PENDIENTE_BD = 'pendiente_validacion';
 
-/** Estado de BD → estado que la app conoce. */
+/** Estado de BD → estado que recibe la app (sin traducción). */
 export function estadoParaApp(estado: string): string {
-  return estado === ESTADO_PENDIENTE_BD ? 'pendiente' : estado;
+  return estado;
 }
 
-/** Estado que envía la app → estado de BD. */
-function estadoParaBd(estado: string): string {
+/** Estado que envía la app → estado de BD ('pendiente' es el formato heredado). */
+export function estadoParaBd(estado: string): string {
   return estado === 'pendiente' ? ESTADO_PENDIENTE_BD : estado;
 }
+
+/** Columnas del resumen de reporte para los listados del viajero. */
+const SELECT_RESUMEN = `select r.id_reporte::int, r.poi_id::int, r.tipo, r.estado, r.descripcion,
+              coalesce(r.es_critico, false) as es_critico, r.fecha_creacion,
+              (select count(*)::int from confirmacion c where c.reporte_id = r.id_reporte) as confirmaciones
+       from reporte r`;
+
+/** Tope de barreras comunitarias que se pintan en el mapa. */
+const LIMITE_BARRERAS = 100;
 
 export interface ValorPropuesto {
   caracteristicaId?: number;
@@ -136,7 +147,7 @@ export class ReportesService {
         );
       }
 
-      return { id_reporte: Number(reporteId), id_poi: Number(poiId), estado: 'pendiente' };
+      return { id_reporte: Number(reporteId), id_poi: Number(poiId), estado: ESTADO_PENDIENTE_BD };
     });
   }
 
@@ -208,6 +219,26 @@ export class ReportesService {
     );
     // Objeto envolvente: un cuerpo `null` no es JSON válido para el cliente.
     return { reporte: reporte ? { ...reporte, estado: estadoParaApp(reporte.estado) } : null };
+  }
+
+  /** U12 «Mis reportes»: los creados por la persona autenticada, recientes primero. */
+  async listarMios(usuarioId: string) {
+    return this.db.query(
+      `${SELECT_RESUMEN}
+       where r.usuario_creador_id = $1
+       order by r.fecha_creacion desc`,
+      [usuarioId],
+    );
+  }
+
+  /** U06: barreras críticas vigentes (no rechazadas) para el mapa; público. */
+  async listarBarreras() {
+    return this.db.query(
+      `${SELECT_RESUMEN}
+       where r.es_critico is true and r.estado <> 'rechazado'
+       order by r.fecha_creacion desc
+       limit ${LIMITE_BARRERAS}`,
+    );
   }
 
   /** M03/M04: reportes para la consola de moderación. */

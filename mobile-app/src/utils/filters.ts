@@ -100,6 +100,10 @@ export function aplicarFiltros(pois: Poi[], filtrosActivos: FiltroId[]): Poi[] {
   }
 
   const definiciones = FILTROS.filter((f) => filtrosActivos.includes(f.id));
+  // Filtrado estricto: si el POI no tiene el dato, NO cumple el filtro. Para
+  // una persona con silla de ruedas, mostrar un lugar desconocido bajo el
+  // filtro "sin escalones" es un riesgo; los pendientes siguen visibles
+  // cuando no hay filtros activos (su estado naranja comunica la duda).
   return pois.filter((poi) =>
     definiciones.every((filtro) => poiCumpleFiltro(poi, filtro)),
   );

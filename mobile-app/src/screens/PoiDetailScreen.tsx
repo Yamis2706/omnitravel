@@ -30,6 +30,7 @@ import {
   ReporteError,
 } from '../services/reportes';
 import type { ReporteComunitario } from '../services/types';
+import { useFavoritosStore } from '../store/favoritosStore';
 import { usePoisStore } from '../store/poisStore';
 import { formatearFechaCorta } from '../utils/format';
 import {
@@ -72,6 +73,13 @@ export function PoiDetailScreen() {
   const poiPorId = usePoisStore((estado) => estado.poiPorId);
   const poisCargados = usePoisStore((estado) => estado.cargado);
   const cargarPois = usePoisStore((estado) => estado.cargar);
+  const poiId = route.params.poiId;
+
+  // Guardados (favorito en la BD del equipo): corazón de la barra superior.
+  const esFavorito = useFavoritosStore((estado) => estado.ids.includes(poiId));
+  const favoritoCargado = useFavoritosStore((estado) => estado.cargado);
+  const cargarFavoritos = useFavoritosStore((estado) => estado.cargar);
+  const alternarFavorito = useFavoritosStore((estado) => estado.alternar);
 
   // Reintenta la carga si la pantalla se abrió antes de tener datos.
   useEffect(() => {
@@ -89,8 +97,14 @@ export function PoiDetailScreen() {
     null,
   );
   const [s01Visible, setS01Visible] = useState(false);
+  const [guardandoFavorito, setGuardandoFavorito] = useState(false);
 
-  const poiId = route.params.poiId;
+  // Carga el listado de favoritos para el estado del corazón (una sola vez).
+  useEffect(() => {
+    if (!favoritoCargado) {
+      void cargarFavoritos();
+    }
+  }, [favoritoCargado, cargarFavoritos]);
 
   // Reporte vigente del punto: habilita la confirmación comunitaria (C3).
   // `undefined` = cargando; `null` = el punto aún no tiene reportes.
@@ -134,7 +148,9 @@ export function PoiDetailScreen() {
   const verificado = poi.estadoVerificacion === 'VERIFICADO';
   const cargandoReporte = reporte === undefined;
   const reporteActivo = reporte ?? null;
-  const reporteConfirmable = reporteActivo?.estado === 'pendiente';
+  const reporteConfirmable =
+    reporteActivo?.estado === 'pendiente_validacion' ||
+    reporteActivo?.estado === 'pendiente'; // 'pendiente': formato heredado
 
   const tituloBotonConfirmar = yaConfirme
     ? 'Ya confirmaste este reporte'
@@ -188,6 +204,33 @@ export function PoiDetailScreen() {
     }
   };
 
+  /** Alterna Guardados (favorito) con rollback si la BD rechaza la operación. */
+  const alternarGuardado = async () => {
+    if (guardandoFavorito) {
+      return;
+    }
+    setGuardandoFavorito(true);
+    setMensajeConfirmacion(null);
+    try {
+      await alternarFavorito(poiId);
+      if (Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibility(
+          esFavorito
+            ? `${poi.nombre} quitado de guardados`
+            : `${poi.nombre} guardado en favoritos`,
+        );
+      }
+    } catch (error) {
+      const mensaje = (error as Error).message;
+      setMensajeConfirmacion(mensaje);
+      if (Platform.OS === 'ios') {
+        AccessibilityInfo.announceForAccessibility(mensaje);
+      }
+    } finally {
+      setGuardandoFavorito(false);
+    }
+  };
+
   return (
     <SafeAreaView style={estilos.pantalla} edges={['top']}>
       <View style={estilos.barraNavegacion}>
@@ -198,6 +241,24 @@ export function PoiDetailScreen() {
           accessibilityLabel="Volver"
         >
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+        </Pressable>
+        <Pressable
+          onPress={() => void alternarGuardado()}
+          style={estilos.botonAtras}
+          accessibilityRole="button"
+          accessibilityLabel={
+            esFavorito
+              ? `Quitar ${poi.nombre} de guardados`
+              : `Guardar ${poi.nombre} en favoritos`
+          }
+          accessibilityHint="Se sincroniza con tu lista de lugares guardados"
+          disabled={guardandoFavorito}
+        >
+          <Ionicons
+            name={esFavorito ? 'heart' : 'heart-outline'}
+            size={24}
+            color={esFavorito ? colors.danger : colors.textPrimary}
+          />
         </Pressable>
       </View>
 
@@ -372,6 +433,9 @@ const estilos = StyleSheet.create({
   },
   barraNavegacion: {
     paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   botonAtras: {
     width: TOUCH_TARGET,
