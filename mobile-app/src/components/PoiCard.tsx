@@ -1,24 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
 import { CATALOGO_CARACTERISTICAS } from '../services/mocks/catalog';
-import type { IconName, Poi } from '../services/types';
+import type { Poi } from '../services/types';
+import { useFavoritosStore } from '../store/favoritosStore';
+import { iconoDeCategoria } from '../utils/categorias';
+import { formatearDistancia } from '../utils/format';
 import { colors, fontSize, fontWeight, radii, spacing } from '../utils/theme';
 import { Badge } from './Badge';
 
 interface Props {
   poi: Poi;
+  /** Distancia en línea recta desde tu ubicación (se omite sin permiso). */
+  distanciaKm?: number;
   onPress?: () => void;
+  /** Oculta el corazón (cuando la vista ya ofrece su propio botón). */
+  muestraFavorito?: boolean;
 }
-
-const ICONO_CATEGORIA: Record<string, IconName> = {
-  Museo: 'business-outline',
-  Parque: 'leaf-outline',
-  Restaurante: 'restaurant-outline',
-  Hotel: 'bed-outline',
-  'Centro cultural': 'color-palette-outline',
-  Biblioteca: 'book-outline',
-  Transporte: 'bus-outline',
-};
 
 function etiquetasAccesibles(poi: Poi): string[] {
   return CATALOGO_CARACTERISTICAS.filter((caracteristica) =>
@@ -33,9 +31,28 @@ function etiquetasAccesibles(poi: Poi): string[] {
 }
 
 /** Tarjeta resumen de un POI (mapa y listados). */
-export function PoiCard({ poi, onPress }: Props) {
+export function PoiCard({
+  poi,
+  distanciaKm,
+  onPress,
+  muestraFavorito = true,
+}: Props) {
   const etiquetas = etiquetasAccesibles(poi);
   const verificado = poi.estadoVerificacion === 'VERIFICADO';
+  const esFavorito = useFavoritosStore((estado) => estado.ids.includes(poi.id));
+  const alternarFavorito = useFavoritosStore((estado) => estado.alternar);
+  const [guardandoFavorito, setGuardandoFavorito] = useState(false);
+
+  const alternarGuardado = () => {
+    if (guardandoFavorito) {
+      return;
+    }
+    setGuardandoFavorito(true);
+    // El store revierte si la BD rechaza; el icono nunca miente un rato largo.
+    void alternarFavorito(poi.id)
+      .catch(() => undefined)
+      .finally(() => setGuardandoFavorito(false));
+  };
 
   return (
     <Pressable
@@ -52,7 +69,7 @@ export function PoiCard({ poi, onPress }: Props) {
     >
       <View style={estilos.iconoCategoria}>
         <Ionicons
-          name={ICONO_CATEGORIA[poi.categoria] ?? 'location-outline'}
+          name={iconoDeCategoria(poi.categoria)}
           size={22}
           color={colors.primary}
         />
@@ -79,12 +96,50 @@ export function PoiCard({ poi, onPress }: Props) {
             tono={verificado ? 'exito' : 'alerta'}
             texto={
               verificado
-                ? `${poi.confirmaciones} confirmaciones`
+                ? `${poi.confirmaciones} validaciones`
                 : `En revisión · ${poi.confirmaciones}/3`
             }
           />
+          {distanciaKm !== undefined ? (
+            <View style={estilos.filaDistancia}>
+              <Ionicons name="location" size={12} color={colors.primary} />
+              <Text style={estilos.textoDistancia}>
+                {formatearDistancia(distanciaKm)}
+              </Text>
+            </View>
+          ) : null}
+          {onPress ? (
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={colors.textMuted}
+              style={estilos.chevron}
+            />
+          ) : null}
         </View>
       </View>
+      {muestraFavorito ? (
+        <Pressable
+          onPress={alternarGuardado}
+          disabled={guardandoFavorito}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={
+            esFavorito
+              ? `Quitar ${poi.nombre} de guardados`
+              : `Guardar ${poi.nombre} en favoritos`
+          }
+          style={estilos.botonCorazon}
+        >
+          <View style={estilos.fondoCorazon}>
+            <Ionicons
+              name={esFavorito ? 'heart' : 'heart-outline'}
+              size={17}
+              color={esFavorito ? colors.danger : colors.textSecondary}
+            />
+          </View>
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }
@@ -140,10 +195,41 @@ const estilos = StyleSheet.create({
   },
   etiquetaTexto: {
     fontSize: 11,
-    color: colors.success,
     fontWeight: fontWeight.medium,
+    color: colors.success,
+  },
+  botonCorazon: {
+    width: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fondoCorazon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pie: {
     marginTop: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  filaDistancia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  textoDistancia: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    color: colors.textPrimary,
+  },
+  chevron: {
+    marginLeft: 'auto',
   },
 });

@@ -2,6 +2,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { LoginScreen } from '../screens/LoginScreen';
+import { MisReportesScreen } from '../screens/MisReportesScreen';
 import { ModeracionScreen } from '../screens/ModeracionScreen';
 import { NavegacionScreen } from '../screens/NavegacionScreen';
 import { PoiDetailScreen } from '../screens/PoiDetailScreen';
@@ -15,8 +16,10 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /**
  * Navegación raíz con flujo por estado de sesión:
- * sin perfil → Registro/Login; con perfil → pestañas + detalle de POI.
- * El perfil se lee del almacenamiento cifrado del dispositivo (nunca del backend).
+ * sin perfil → Login (pantalla inicial) con Registro alcanzable; con perfil →
+ * pestañas + detalle de POI. El perfil se lee del almacenamiento cifrado del
+ * dispositivo (nunca del backend), por lo que la sesión se conserva entre
+ * aperturas y no hace falta registrarse de nuevo.
  */
 export function RootNavigator() {
   const hidratado = useProfileStore((estado) => estado.hidratado);
@@ -36,7 +39,10 @@ export function RootNavigator() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator
+        initialRouteName={perfil ? 'Principal' : 'Login'}
+        screenOptions={{ headerShown: false }}
+      >
         {perfil ? (
           <>
             <Stack.Screen name="Principal" component={MainTabs} />
@@ -51,6 +57,11 @@ export function RootNavigator() {
               options={{ animation: 'slide_from_right' }}
             />
             <Stack.Screen
+              name="MisReportes"
+              component={MisReportesScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+            <Stack.Screen
               name="Navegacion"
               component={NavegacionScreen}
               options={{ animation: 'slide_from_right' }}
@@ -58,10 +69,10 @@ export function RootNavigator() {
           </>
         ) : (
           <>
-            <Stack.Screen name="Registro" component={RegisterScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen
-              name="Login"
-              component={LoginScreen}
+              name="Registro"
+              component={RegisterScreen}
               options={{ animation: 'slide_from_right' }}
             />
           </>

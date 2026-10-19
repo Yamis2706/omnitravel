@@ -1,17 +1,49 @@
-import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
-import { colors, fontSize, fontWeight, spacing } from '../utils/theme';
-
-interface Props {
-  tamano?: number;
-  mostrarTagline?: boolean;
-}
+import { Image, StyleSheet, View } from 'react-native';
 
 /**
- * Marca de OmniTravel: pin azul con símbolo de accesibilidad + nombre.
- * Reemplaza al logo oficial mientras se integra el asset definitivo.
+ * Marca oficial de OmniTravel (assets recortados del mockup U03 del documento
+ * `docs/4. OmniTravel UI_ Mockups.pdf`): pin azul con símbolo de accesibilidad
+ * y carretera + wordmark + lema. Tres variantes con el mismo asset real:
+ *
+ * - `pin`: solo el pin (cabeceras, avatares de marca).
+ * - `lockup`: pin + letras "OmniTravel" sin lema (espacios compactos).
+ * - `completo`: pin + letras + "Tu mundo, sin barreras" (bienvenida/login).
  */
-export function BrandMark({ tamano = 64, mostrarTagline = true }: Props) {
+
+const LOGO_PIN = require('../../assets/logo-pin.png') as number;
+const LOGO_LOCKUP = require('../../assets/logo-lockup-sin-lema.png') as number;
+const LOGO_COMPLETO = require('../../assets/logo-lockup.png') as number;
+
+/** Relaciones de aspecto reales de los recortes (ancho / alto). */
+const ASPECTO_PIN = 492 / 632;
+const ASPECTO_LOCKUP = 1395 / 474;
+const ASPECTO_COMPLETO = 1398 / 474;
+
+type Variante = 'pin' | 'lockup' | 'completo';
+
+interface Props {
+  /** Alto renderizado de la marca en píxeles (las tres variantes respetan su aspecto). */
+  tamano?: number;
+  /** Mantiene el lema en la variante `completo` (compatibilidad con U01/U03). */
+  mostrarTagline?: boolean;
+  variante?: Variante;
+}
+
+const ASSETS: Record<Variante, { fuente: number; aspecto: number }> = {
+  pin: { fuente: LOGO_PIN, aspecto: ASPECTO_PIN },
+  lockup: { fuente: LOGO_LOCKUP, aspecto: ASPECTO_LOCKUP },
+  completo: { fuente: LOGO_COMPLETO, aspecto: ASPECTO_COMPLETO },
+};
+
+export function BrandMark({
+  tamano = 64,
+  mostrarTagline = true,
+  variante = 'pin',
+}: Props) {
+  const varianteFinal: Variante =
+    variante === 'completo' && !mostrarTagline ? 'lockup' : variante;
+  const { fuente, aspecto } = ASSETS[varianteFinal];
+
   return (
     <View
       style={estilos.contenedor}
@@ -19,22 +51,12 @@ export function BrandMark({ tamano = 64, mostrarTagline = true }: Props) {
       accessibilityRole="image"
       accessibilityLabel="OmniTravel, tu mundo sin barreras"
     >
-      <View
-        style={[
-          estilos.logo,
-          { width: tamano, height: tamano, borderRadius: tamano / 2 },
-        ]}
-      >
-        <Ionicons
-          name="accessibility"
-          size={tamano * 0.55}
-          color={colors.white}
-        />
-      </View>
-      <Text style={estilos.nombre}>OmniTravel</Text>
-      {mostrarTagline ? (
-        <Text style={estilos.tagline}>Tu mundo, sin barreras</Text>
-      ) : null}
+      <Image
+        source={fuente}
+        resizeMode="contain"
+        style={{ width: Math.round(tamano * aspecto), height: tamano }}
+        accessibilityIgnoresInvertColors
+      />
     </View>
   );
 }
@@ -42,21 +64,6 @@ export function BrandMark({ tamano = 64, mostrarTagline = true }: Props) {
 const estilos = StyleSheet.create({
   contenedor: {
     alignItems: 'center',
-    gap: spacing.xs,
-  },
-  logo: {
-    backgroundColor: colors.primary,
-    alignItems: 'center',
     justifyContent: 'center',
-  },
-  nombre: {
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.bold,
-    color: colors.primary,
-    marginTop: spacing.sm,
-  },
-  tagline: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
   },
 });

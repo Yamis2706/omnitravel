@@ -28,6 +28,23 @@
 --
 -- Este script es IDEMPOTENTE: puede ejecutarse completo varias veces.
 -- Ejecutar en el SQL Editor del proyecto (como postgres del dashboard).
+--
+-- DIARIO DE EJECUCIÓN (2026-10-18, responsable del front):
+--   · EJECUTADO con ajustes: (1) §2 referenciaba es_moderador() antes de
+--     crearla ⇒ se ejecutó §3 primero, luego §2 (idempotente); (2) el CHECK
+--     real `reporte_estado_check` acepta {'pendiente_validacion','publicado',
+--     'rechazado','en_revision'} — NO acepta 'pendiente' ⇒ las RPCs quedaron
+--     con 'pendiente_validacion' (el front alinea sus literales) y la semilla
+--     del POI 5 usa ese estado; (3) listar_reportes_moderación del front usa
+--     'pendiente_validacion' por defecto; (4) confirmar_reporte anota
+--     via_resolucion='automatica' al publicar y decidir_reporte 'manual'.
+--   · Evidencias: bucket `evidencia` (publico, 5 MB, jpeg/png/webp) creado
+--     junto con las 3 políticas storage §5.
+--   · Verificación con la sesión real de la app: usuario_actual_id()=11;
+--     crear_reporte devolvió estado 'pendiente_validacion' creando POI +
+--     reporte + 2 valores; listar_reportes_moderacion sin rol ⇒
+--     ACCESO_DENEGADO (correcto). Los registros de prueba se eliminaron; la
+--     semilla del POI 5 queda (id_reporte=6, 0/3 confirmaciones) para la demo.
 -- ============================================================================
 
 

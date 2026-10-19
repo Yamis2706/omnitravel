@@ -13,6 +13,19 @@ export class ReportesController {
     return this.reportesService.crear(usuario.id, body);
   }
 
+  // GET /reportes/mios — reportes de la persona autenticada (U12)
+  @Get('reportes/mios')
+  @UseGuards(JwtAuthGuard)
+  mios(@UsuarioActual() usuario: UsuarioToken) {
+    return this.reportesService.listarMios(usuario.id);
+  }
+
+  // GET /reportes/barreras — barreras críticas vigentes, público (mapa U06)
+  @Get('reportes/barreras')
+  barreras() {
+    return this.reportesService.listarBarreras();
+  }
+
   // POST /reportes/:id/confirmaciones — confirmar (C3)
   @Post('reportes/:id/confirmaciones')
   @UseGuards(JwtAuthGuard)
@@ -26,7 +39,7 @@ export class ReportesController {
     return this.reportesService.reporteActivo(String(id));
   }
 
-  // GET /moderacion/reportes?estado=pendiente — moderador/administrador (M03)
+  // GET /moderacion/reportes?estado=pendiente_validacion (sin estado = todos) — moderador/administrador (M03)
   @Get('moderacion/reportes')
   @UseGuards(JwtAuthGuard)
   listar(@UsuarioActual() usuario: UsuarioToken, @Query('estado') estado?: string) {

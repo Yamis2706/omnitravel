@@ -27,13 +27,33 @@ export interface PerfilAccesibilidad {
    * antiguos sin este campo se leen como 'viajero'.
    */
   rol: RolUsuario;
+  /**
+   * Identificador de la cuenta dueña de este perfil (id de la fila
+   * `usuario`, con respaldo en el UUID de Supabase Auth). La foto de
+   * perfil vive POR CUENTA en el dispositivo: este id elige su archivo.
+   */
+  idCuenta?: string;
+  /**
+   * Foto del usuario elegida desde la galería: se copia al almacenamiento
+   * privado de la app y NUNCA sale del dispositivo (Ley 1581).
+   */
+  fotoUri?: string;
 }
 
 interface EstadoPerfil {
   /** true cuando el store terminó de leer el almacenamiento seguro. */
   hidratado: boolean;
   perfil: PerfilAccesibilidad | null;
+  /**
+   * Correo del último inicio de sesión: permite "entrar la próxima vez sin
+   * registrarse" incluso después de cerrar sesión. Se conserva cifrado y se
+   * olvida solo si la persona lo pide.
+   */
+  ultimoEmail?: string;
   guardarPerfil: (perfil: DatosPerfil) => void;
+  recordarEmail: (email: string) => void;
+  olvidarEmail: () => void;
+  establecerFoto: (fotoUri?: string) => void;
   alternarFiltro: (filtro: FiltroId) => void;
   establecerFiltros: (filtros: FiltroId[]) => void;
   cerrarSesion: () => void;
@@ -59,14 +79,30 @@ export const useProfileStore = create<EstadoPerfil>()(
     (set) => ({
       hidratado: false,
       perfil: null,
+      ultimoEmail: undefined,
       guardarPerfil: (datos) =>
-        set({
+        set((estado) => ({
           perfil: {
             ...datos,
             rol: datos.rol ?? 'viajero',
             creadoEn: new Date().toISOString(),
+            // La foto sobrevive únicamente entre sesiones de LA MISMA
+            // cuenta: al entrar con otro usuario no se hereda la foto
+            // anterior (cada cuenta tiene su archivo en el dispositivo).
+            fotoUri:
+              datos.idCuenta !== undefined &&
+              estado.perfil?.idCuenta === datos.idCuenta
+                ? (datos.fotoUri ?? estado.perfil?.fotoUri)
+                : datos.fotoUri,
           },
-        }),
+        })),
+      recordarEmail: (email) =>
+        set({ ultimoEmail: email.trim().toLowerCase() }),
+      olvidarEmail: () => set({ ultimoEmail: undefined }),
+      establecerFoto: (fotoUri) =>
+        set((estado) =>
+          estado.perfil ? { perfil: { ...estado.perfil, fotoUri } } : estado,
+        ),
       alternarFiltro: (filtro) =>
         set((estado) => {
           if (!estado.perfil) {
@@ -90,7 +126,10 @@ export const useProfileStore = create<EstadoPerfil>()(
     {
       name: 'omnitravel-perfil',
       storage: createJSONStorage(() => almacenamientoSeguro),
-      partialize: (estado) => ({ perfil: estado.perfil }),
+      partialize: (estado) => ({
+        perfil: estado.perfil,
+        ultimoEmail: estado.ultimoEmail,
+      }),
       onRehydrateStorage: () => () => {
         // Marca la hidratación incluso si el almacenamiento falla:
         // en el peor caso la app arranca en la pantalla de registro.

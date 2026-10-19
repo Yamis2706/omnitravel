@@ -192,4 +192,101 @@ describe('normalizarRespuestaRuta', () => {
       normalizarRespuestaRuta({ trip: { summary: { length: 1 } } }),
     ).toThrow('El motor de ruteo devolvió una respuesta inesperada.');
   });
+
+  it('adjunta la ruta alternativa del formato crudo de Valhalla (alternates)', () => {
+    const ruta = normalizarRespuestaRuta({
+      trip: {
+        summary: { length: 2.5, time: 900 },
+        legs: [
+          {
+            shape,
+            maneuvers: [
+              { type: 1, instruction: 'Camina al norte.', length: 2.5 },
+            ],
+          },
+        ],
+      },
+      warnings: [],
+      alternates: [
+        {
+          trip: {
+            summary: { length: 3.1, time: 1500 },
+            legs: [
+              {
+                shape: codificar([
+                  [4.537, -75.675],
+                  [4.54, -75.69],
+                ]),
+                maneuvers: [
+                  {
+                    type: 15,
+                    instruction: 'Gira a la izquierda.',
+                    length: 3.1,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(ruta.alternativa).toBeDefined();
+    expect(ruta.alternativa?.distanciaKm).toBe(3.1);
+    expect(ruta.alternativa?.duracionMin).toBe(25);
+    expect(ruta.alternativa?.pasos).toEqual([
+      { tipo: 15, instruccion: 'Gira a la izquierda.', distanciaKm: 3.1 },
+    ]);
+    expect(ruta.alternativa?.advertencias).toEqual([]);
+    // Distinta geometría base: el recálculo muestra un camino diferente.
+    expect(ruta.coordenadas?.[0].latitude).toBeCloseTo(4.537, 5);
+    expect(ruta.alternativa?.coordenadas?.[1].longitude).toBeCloseTo(-75.69, 5);
+  });
+
+  it('adjunta la alternativa del contrato backend (ya normalizada)', () => {
+    const ruta = normalizarRespuestaRuta({
+      distanciaKm: 1.25,
+      duracionMin: 16.4,
+      perfil: 'silla_de_ruedas',
+      shape,
+      pasos: [{ tipo: 1, instruccion: 'Camina al norte.', distanciaKm: 1.25 }],
+      advertencias: ['Aviso del backend.'],
+      alternativa: {
+        distanciaKm: 1.8,
+        duracionMin: 24.2,
+        perfil: 'silla_de_ruedas',
+        shape,
+        pasos: [
+          {
+            tipo: 8,
+            instruccion: 'Continúa por la avenida.',
+            distanciaKm: 1.8,
+          },
+        ],
+        advertencias: [],
+      },
+    });
+
+    expect(ruta.alternativa?.distanciaKm).toBe(1.8);
+    expect(ruta.alternativa?.duracionMin).toBe(24.2);
+    expect(ruta.alternativa?.perfil).toBe('silla_de_ruedas');
+    expect(ruta.alternativa?.pasos).toHaveLength(1);
+  });
+
+  it('omite alternativas malformadas sin romper la ruta principal', () => {
+    const ruta = normalizarRespuestaRuta({
+      trip: {
+        summary: { length: 2.5, time: 900 },
+        legs: [],
+      },
+      alternates: [
+        'basura',
+        null,
+        { summary: {} },
+        { trip: { summary: { time: 900 } } },
+      ],
+    });
+    expect(ruta.alternativa).toBeUndefined();
+    expect(ruta.distanciaKm).toBe(2.5);
+  });
 });
