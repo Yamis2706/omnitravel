@@ -1,5 +1,6 @@
 {
   "expo": {
+    "owner": "yamis2706s-team",
     "name": "OmniTravel",
     "slug": "omnitravel",
     "scheme": "omnitravel",
@@ -36,6 +37,11 @@
           "microphonePermission": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b9a0f082-e6dc-4bec-9957-75a8b0ce0834"
+      }
+    }
   }
 }
