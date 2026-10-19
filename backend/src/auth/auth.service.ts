@@ -12,6 +12,9 @@ const ROL_POR_DEFECTO = 'viajero';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Cuentas copiadas de Supabase: la app guardaba SHA-256 hex sin sal.
 const HASH_SHA256_LEGADO = /^[a-f0-9]{64}$/;
+// Hash bcrypt de relleno: si el correo no existe se compara igual, para que el
+// tiempo de respuesta no revele qué correos están registrados.
+const HASH_DE_RELLENO = bcrypt.hashSync('relleno-no-es-una-cuenta', 10);
 
 export interface Credenciales {
   email?: unknown;
@@ -26,7 +29,7 @@ export class AuthService {
     @InjectRepository(Rol)
     private readonly roles: Repository<Rol>,
     private readonly jwt: JwtService,
-  ) { }
+  ) {}
 
   async registrar(datos: Credenciales) {
     const { email, password } = this.validar(datos);
@@ -83,6 +86,9 @@ export class AuthService {
       .where('u.email = :email', { email })
       .getOne();
 
+    if (!usuario) {
+      await bcrypt.compare(password, HASH_DE_RELLENO);
+    }
     if (!usuario || !(await this.contrasenaValida(usuario, password))) {
       throw errorDominio(
         HttpStatus.UNAUTHORIZED,
@@ -121,7 +127,10 @@ export class AuthService {
   }
 
   private validar(datos: Credenciales) {
-    if (typeof datos?.email !== 'string' || typeof datos?.password !== 'string') {
+    if (
+      typeof datos?.email !== 'string' ||
+      typeof datos?.password !== 'string'
+    ) {
       throw errorDominio(
         HttpStatus.BAD_REQUEST,
         'VALIDATION_ERROR',

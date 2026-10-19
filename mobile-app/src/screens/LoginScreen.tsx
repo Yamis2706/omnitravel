@@ -42,9 +42,9 @@ function nombreDesdeEmail(email: string): string {
 
 /**
  * U01/U02 — Inicio de sesión.
- * Autentica contra Supabase Auth del proyecto OmniTravel del equipo y
- * descarga el perfil de dominio (tabla `usuario`) si las políticas RLS lo
- * permiten. El perfil de accesibilidad sigue siendo local (Ley 1581).
+ * Autentica contra el backend (`POST /auth/login`), que devuelve el JWT y el
+ * perfil de dominio (tabla `usuario`, con su rol). El perfil de accesibilidad
+ * sigue siendo local (Ley 1581).
  */
 export function LoginScreen() {
   const guardarPerfil = useProfileStore((estado) => estado.guardarPerfil);
