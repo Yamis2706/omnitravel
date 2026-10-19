@@ -1,4 +1,4 @@
-import { apiFetch } from './api/client';
+import { supabase } from './supabase';
 import type {
   AccionModeracion,
   ReporteComunitario,
@@ -12,16 +12,16 @@ import type {
 /**
  * Proceso 1 — Validación colaborativa (escritura).
  *
- * El front NO toca la base de datos: llama a los endpoints transaccionales
- * del backend NestJS (PostgreSQL en AWS RDS):
- *   POST /reportes · POST /reportes/:id/confirmaciones ·
- *   GET /pois/:id/reporte-activo · GET /moderacion/reportes ·
- *   POST /moderacion/reportes/:id/decision
- * El consenso de 3 confirmaciones es atómico (RNF-18/23/28) y la
- * anti-autoconfirmación y el rol de moderación se validan en el servidor.
+ * El front NO inserta filas directamente: ejecuta las funciones RPC
+ * transaccionales definidas en
+ * `docs/gestion/supabase-sara/peticiones-front-entrega2.sql`
+ * (`crear_reporte`, `confirmar_reporte`, `decidir_reporte`,
+ * `listar_reportes_moderacion`). Así el consenso de 3 confirmaciones es
+ * atómico (RNF-18/23/28), la anti-autoconfirmación vive en la base y la
+ * migración futura al backend NestJS no cambia el contrato del front.
  */
 
-/** Códigos de error que el backend devuelve como `'CODIGO: mensaje'`. */
+/** Códigos de error que la BD devuelve como `'CODIGO: mensaje'`. */
 export type CodigoErrorReporte =
   | 'USUARIO_NO_VINCULADO'
   | 'AUTOCONFIRMACION'
@@ -62,7 +62,7 @@ export class ReporteError extends Error {
 }
 
 /**
- * Traduce el mensaje crudo del backend (`'CODIGO: mensaje'`) a un error
+ * Traduce el mensaje crudo de PostgREST (`'CODIGO: mensaje'`) a un error
  * tipado. Cualquier mensaje ajeno a la convención se degrada a DESCONOCIDO
  * con un texto amable (p. ej. fallos de red o de permisos).
  */
@@ -112,7 +112,7 @@ export function mapearReporteComunitario(
   };
 }
 
-/** Fila cruda que devuelve `GET /moderacion/reportes`. */
+/** Fila cruda que devuelve la RPC `listar_reportes_moderacion`. */
 interface FilaReporteModeracion {
   id_reporte: number;
   tipo: string | null;
@@ -149,7 +149,7 @@ interface FilaReporteModeracion {
     | null;
 }
 
-/** Traduce la fila anidada del backend al contrato del front (M03–M05). */
+/** Traduce la fila anidada de la RPC al contrato del front (M03–M05). */
 export function mapearReporteModeracion(
   fila: FilaReporteModeracion,
 ): ReporteModeracion {
@@ -190,6 +190,8 @@ export function mapearReporteModeracion(
   };
 }
 
+/** Valores propuestos que el wizard (U09/U10) envía a la RPC. */
+
 /** Datos capturados por el wizard de reporte. */
 export interface DatosNuevoReporte {
   /** POI existente a actualizar; null cuando es un lugar nuevo. */
@@ -202,47 +204,39 @@ export interface DatosNuevoReporte {
   descripcion: string;
   esCritico: boolean;
   caracteristicas: ValorPropuestoReporte[];
-  /** `storageKey` de la foto ya subida con `POST /evidencias` (opcional). */
+  /** Ruta de la foto ya subida al bucket `evidencia` (opcional). */
   evidenciaStorageKey?: string | null;
-}
-
-/** Llama al backend y traduce sus errores `'CODIGO: mensaje'`. */
-async function llamarBackend<T>(ruta: string, init?: RequestInit): Promise<T> {
-  try {
-    return await apiFetch<T>(ruta, init);
-  } catch (error) {
-    throw mapearErrorReporte(error instanceof Error ? error.message : '');
-  }
 }
 
 /** Crea un reporte comunitario (U09/U10) y devuelve sus identificadores. */
 export async function crearReporte(
   datos: DatosNuevoReporte,
 ): Promise<{ idReporte: string; idPoi: string }> {
-  const resultado = await llamarBackend<{
-    id_reporte: number;
-    id_poi: number;
-  } | null>('/reportes', {
-    method: 'POST',
-    body: JSON.stringify({
-      poiId: datos.poiId ? Number(datos.poiId) : null,
-      nombre: datos.nombre ?? null,
-      tipoPoi: datos.tipoPoi ?? null,
-      direccion: datos.direccion ?? null,
-      lat: datos.lat ?? null,
-      lon: datos.lon ?? null,
-      descripcion: datos.descripcion,
-      esCritico: datos.esCritico,
-      caracteristicas: datos.caracteristicas.map((valor) => ({
-        caracteristicaId: valor.caracteristicaId,
-        valorBooleano: valor.valorBooleano,
-        valorNumerico: valor.valorNumerico,
-        valorTexto: valor.valorTexto,
-      })),
-      evidenciaStorageKey: datos.evidenciaStorageKey ?? null,
-    }),
+  const { data, error } = await supabase.rpc('crear_reporte', {
+    p_poi_id: datos.poiId ? Number(datos.poiId) : null,
+    p_nombre: datos.nombre ?? null,
+    p_tipo_poi: datos.tipoPoi ?? null,
+    p_direccion: datos.direccion ?? null,
+    p_lat: datos.lat ?? null,
+    p_lon: datos.lon ?? null,
+    p_descripcion: datos.descripcion,
+    p_tipo_reporte: datos.poiId ? 'actualizacion' : 'nuevo',
+    p_es_critico: datos.esCritico,
+    p_caracteristicas: datos.caracteristicas.map((valor) => ({
+      caracteristicaId: valor.caracteristicaId,
+      valorBooleano:
+        valor.valorBooleano === undefined ? undefined : valor.valorBooleano,
+      valorNumerico: valor.valorNumerico,
+      valorTexto: valor.valorTexto,
+    })),
+    p_evidencia_storage_key: datos.evidenciaStorageKey ?? null,
   });
 
+  if (error) {
+    throw mapearErrorReporte(error.message);
+  }
+
+  const resultado = data as { id_reporte: number; id_poi: number } | null;
   if (!resultado) {
     throw new ReporteError('DESCONOCIDO', MENSAJES_POR_CODIGO.DESCONOCIDO);
   }
@@ -255,17 +249,23 @@ export async function crearReporte(
 
 /**
  * Registra una confirmación comunitaria (C3). A la tercera confirmación de
- * usuarios independientes el backend publica el punto y `publicado` llega en true.
+ * usuarios independientes la BD publica el punto y `publicado` llega en true.
  */
 export async function confirmarReporte(
   reporteId: string,
 ): Promise<ResultadoConfirmacion> {
-  const resultado = await llamarBackend<{
+  const { data, error } = await supabase.rpc('confirmar_reporte', {
+    p_reporte_id: Number(reporteId),
+  });
+
+  if (error) {
+    throw mapearErrorReporte(error.message);
+  }
+
+  const resultado = data as {
     confirmaciones: number;
     publicado: boolean;
-  } | null>(`/reportes/${Number(reporteId)}/confirmaciones`, {
-    method: 'POST',
-  });
+  } | null;
 
   return {
     confirmaciones: resultado?.confirmaciones ?? 0,
@@ -280,21 +280,37 @@ export async function confirmarReporte(
 export async function obtenerReporteDePoi(
   poiId: string,
 ): Promise<ReporteComunitario | null> {
-  let respuesta: {
-    reporte: (FilaReporte & { confirmaciones: number }) | null;
-  };
-  try {
-    respuesta = await apiFetch(`/pois/${Number(poiId)}/reporte-activo`);
-  } catch (error) {
+  const { data, error } = await supabase
+    .from('reporte')
+    .select('id_reporte, poi_id, estado, es_critico, fecha_creacion')
+    .eq('poi_id', Number(poiId))
+    .order('fecha_creacion', { ascending: false })
+    .limit(5);
+
+  if (error) {
+    throw new Error(`No se pudo leer el reporte: ${error.message}`);
+  }
+
+  const filas = (data ?? []) as FilaReporte[];
+  const activo = filas.find(
+    (fila) => (fila.estado ?? '').trim().toLowerCase() !== 'rechazado',
+  );
+  if (!activo) {
+    return null;
+  }
+
+  const { count, error: errorConteo } = await supabase
+    .from('confirmacion')
+    .select('id_confirmacion', { count: 'exact', head: true })
+    .eq('reporte_id', activo.id_reporte);
+
+  if (errorConteo) {
     throw new Error(
-      `No se pudo leer el reporte: ${error instanceof Error ? error.message : ''}`,
+      `No se pudieron leer las confirmaciones: ${errorConteo.message}`,
     );
   }
 
-  const { reporte } = respuesta;
-  return reporte
-    ? mapearReporteComunitario(reporte, reporte.confirmaciones ?? 0)
-    : null;
+  return mapearReporteComunitario(activo, count ?? 0);
 }
 
 /**
@@ -305,11 +321,15 @@ export async function obtenerReporteDePoi(
 export async function listarReportesModeracion(
   estado: string | null = 'pendiente_validacion',
 ): Promise<ReporteModeracion[]> {
-  const consulta = estado ? `?estado=${encodeURIComponent(estado)}` : '';
-  const filas = await llamarBackend<FilaReporteModeracion[]>(
-    `/moderacion/reportes${consulta}`,
-  );
-  return (filas ?? []).map(mapearReporteModeracion);
+  const { data, error } = await supabase.rpc('listar_reportes_moderacion', {
+    p_estado: estado,
+  });
+
+  if (error) {
+    throw mapearErrorReporte(error.message);
+  }
+
+  return ((data ?? []) as FilaReporteModeracion[]).map(mapearReporteModeracion);
 }
 
 /**
@@ -321,17 +341,30 @@ export async function decidirReporte(
   accion: AccionModeracion,
   motivo?: string,
 ): Promise<{ estado: string }> {
-  const resultado = await llamarBackend<{ estado: string } | null>(
-    `/moderacion/reportes/${Number(reporteId)}/decision`,
-    {
-      method: 'POST',
-      body: JSON.stringify({ accion, motivo: motivo?.trim() || null }),
-    },
-  );
+  const { data, error } = await supabase.rpc('decidir_reporte', {
+    p_reporte_id: Number(reporteId),
+    p_accion: accion,
+    p_motivo: motivo?.trim() || null,
+  });
+
+  if (error) {
+    throw mapearErrorReporte(error.message);
+  }
+
+  const resultado = data as { estado: string } | null;
   return { estado: resultado?.estado ?? accion };
 }
 
-/** Fila de `reporte` que devuelven los listados del viajero en el backend. */
+/** Id de `usuario` de la sesión activa (null si aún no hay perfil vinculado). */
+async function idUsuarioActual(): Promise<number | null> {
+  const { data, error } = await supabase.rpc('usuario_actual_id');
+  if (error || data == null) {
+    return null;
+  }
+  return Number(data);
+}
+
+/** Fila cruda de `reporte` usada por los listados del viajero. */
 interface FilaResumenReporte {
   id_reporte: number;
   poi_id: number;
@@ -340,11 +373,35 @@ interface FilaResumenReporte {
   descripcion: string | null;
   es_critico: boolean | null;
   fecha_creacion: string;
-  confirmaciones: number | null;
 }
 
-function mapearResumen(fila: FilaResumenReporte): ReporteResumen {
-  return {
+/**
+ * Mapea las filas de `reporte` al resumen del front contando sus
+ * confirmaciones (una sola consulta agregada, sin N+1).
+ */
+async function mapearResumenes(
+  filas: FilaResumenReporte[],
+): Promise<ReporteResumen[]> {
+  if (filas.length === 0) {
+    return [];
+  }
+
+  const ids = filas.map((fila) => fila.id_reporte);
+  const { data, error } = await supabase
+    .from('confirmacion')
+    .select('reporte_id')
+    .in('reporte_id', ids);
+
+  if (error) {
+    throw new Error(`No se pudieron leer las confirmaciones: ${error.message}`);
+  }
+
+  const conteo = new Map<number, number>();
+  for (const fila of (data ?? []) as { reporte_id: number }[]) {
+    conteo.set(fila.reporte_id, (conteo.get(fila.reporte_id) ?? 0) + 1);
+  }
+
+  return filas.map((fila) => ({
     id: String(fila.id_reporte),
     poiId: String(fila.poi_id),
     tipo: fila.tipo ?? 'nuevo',
@@ -352,17 +409,35 @@ function mapearResumen(fila: FilaResumenReporte): ReporteResumen {
     descripcion: fila.descripcion ?? '',
     esCritico: fila.es_critico === true,
     fechaCreacion: fila.fecha_creacion,
-    confirmaciones: Number(fila.confirmaciones ?? 0),
-  };
+    confirmaciones: conteo.get(fila.id_reporte) ?? 0,
+  }));
 }
+
+const COLUMNAS_RESUMEN =
+  'id_reporte, poi_id, tipo, estado, descripcion, es_critico, fecha_creacion';
 
 /**
  * Reportes creados por la sesión activa ("Mis reportes" de U12), del más
- * reciente al más antiguo (`GET /reportes/mios`, exige sesión).
+ * reciente al más antiguo. La lectura de `reporte` es pública (política
+ * `lectura_publica_reporte`), el filtro por autor es explícito.
  */
 export async function listarMisReportes(): Promise<ReporteResumen[]> {
-  const filas = await llamarBackend<FilaResumenReporte[]>('/reportes/mios');
-  return (filas ?? []).map(mapearResumen);
+  const idUsuario = await idUsuarioActual();
+  if (idUsuario == null) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('reporte')
+    .select(COLUMNAS_RESUMEN)
+    .eq('usuario_creador_id', idUsuario)
+    .order('fecha_creacion', { ascending: false });
+
+  if (error) {
+    throw new Error(`No se pudieron leer tus reportes: ${error.message}`);
+  }
+
+  return mapearResumenes((data ?? []) as FilaResumenReporte[]);
 }
 
 /**
@@ -371,6 +446,17 @@ export async function listarMisReportes(): Promise<ReporteResumen[]> {
  * escaleras, aceras rotas, ascensores dañados… reportados por otros viajeros.
  */
 export async function listarBarrerasComunitarias(): Promise<ReporteResumen[]> {
-  const filas = await llamarBackend<FilaResumenReporte[]>('/reportes/barreras');
-  return (filas ?? []).map(mapearResumen);
+  const { data, error } = await supabase
+    .from('reporte')
+    .select(COLUMNAS_RESUMEN)
+    .eq('es_critico', true)
+    .neq('estado', 'rechazado')
+    .order('fecha_creacion', { ascending: false })
+    .limit(100);
+
+  if (error) {
+    throw new Error(`No se pudieron leer las barreras: ${error.message}`);
+  }
+
+  return mapearResumenes((data ?? []) as FilaResumenReporte[]);
 }

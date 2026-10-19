@@ -28,13 +28,12 @@ import {
   uriFotoDePerfilGuardada,
 } from '../services/fotoPerfil';
 import { listarMisReportes } from '../services/reportes';
+import { supabase } from '../services/supabase';
 import type { ReporteResumen } from '../services/types';
-import { useFavoritosStore } from '../store/favoritosStore';
 import {
   useProfileStore,
   type NecesidadAccesibilidad,
 } from '../store/profileStore';
-import { cerrarSesionCuenta } from '../services/api/auth';
 import {
   calcularPuntos,
   nivelComunitario,
@@ -210,9 +209,8 @@ export function ProfileScreen() {
           text: 'Cerrar sesión',
           style: 'destructive',
           onPress: () => {
-            // Borra también el token de sesión del dispositivo.
-            void cerrarSesionCuenta();
-            useFavoritosStore.getState().reiniciar();
+            // Cierra también la sesión de Supabase Auth (best-effort).
+            void supabase.auth.signOut();
             cerrarSesion();
           },
         },

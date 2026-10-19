@@ -18,8 +18,9 @@ import { AppButton } from '../components/AppButton';
 import { BrandMark } from '../components/BrandMark';
 import { CampoTexto } from '../components/CampoTexto';
 import type { RootStackParamList } from '../navigation/types';
-import { iniciarSesionCuenta, rolDeUsuarioId } from '../services/api/auth';
 import { uriFotoDePerfilGuardada } from '../services/fotoPerfil';
+import { iniciarSesionCuenta, rolDeUsuarioId } from '../services/supabase/auth';
+import { supabase } from '../services/supabase';
 import { useProfileStore } from '../store/profileStore';
 import { colors, fontSize, fontWeight, radii, spacing } from '../utils/theme';
 
@@ -70,7 +71,7 @@ const OPCIONES_ROL: {
  * U01/U02 — Inicio de sesión con selección previa de rol.
  *
  * Paso 1: la persona elige cómo quiere entrar (viajero/comunidad o
- * administración). Paso 2: credenciales contra el backend (`POST /auth/login`, JWT).
+ * administración). Paso 2: credenciales contra Supabase Auth.
  *
  * El rol EFECTIVO siempre se valida contra la fila `usuario` de la BD
  * (`rol_id`): elegir «Administrador» sin permisos no otorga nada, solo
@@ -91,6 +92,7 @@ export function LoginScreen() {
   const [contrasena, setContrasena] = useState('');
   const [verContrasena, setVerContrasena] = useState(false);
   const [errores, setErrores] = useState<Errores>({});
+  const [recuperando, setRecuperando] = useState(false);
 
   const anunciar = (mensaje: string) => {
     if (Platform.OS === 'ios') {
@@ -123,11 +125,12 @@ export function LoginScreen() {
       const esModerador =
         rolEfectivo === 'moderador' || rolEfectivo === 'administrador';
 
-      // Id de la cuenta (dueña de preferencias y foto local): la fila `usuario`.
+      // Id de la cuenta (dueña de preferencias y foto local): máxima
+      // precisión la fila `usuario`; como respaldo, el UUID de Supabase Auth.
       const idCuenta =
         resultado.perfil?.id_usuario != null
           ? String(resultado.perfil.id_usuario)
-          : undefined;
+          : (resultado.idAuthSupabase ?? undefined);
 
       // El perfil de accesibilidad sigue siendo 100 % local (Ley 1581).
       guardarPerfil({
@@ -148,8 +151,8 @@ export function LoginScreen() {
         }
       }
 
-      // "Entrar la próxima vez sin registrarse": correo recordado y JWT
-      // persistido cifrado en el dispositivo (expo-secure-store).
+      // "Entrar la próxima vez sin registrarse": correo recordado y sesión
+      // de Supabase persistida cifrada en el dispositivo.
       recordarEmail(email.trim());
 
       anunciar('Sesión iniciada. Bienvenido de nuevo.');
@@ -177,16 +180,33 @@ export function LoginScreen() {
     }
   };
 
-  /**
-   * El backend aún no envía correos de recuperación: se informa con
-   * transparencia en lugar de simular un envío (RNF-17).
-   */
-  const recuperarContrasena = () => {
-    Alert.alert(
-      'Recuperar contraseña',
-      'La recuperación por correo todavía no está disponible. Pide a un ' +
-        'administrador de OmniTravel que restablezca tu contraseña.',
-    );
+  const recuperarContrasena = async () => {
+    const correo = email.trim();
+    if (!correo) {
+      Alert.alert(
+        'Recuperar contraseña',
+        'Escribe primero tu correo electrónico en el campo de arriba.',
+      );
+      return;
+    }
+    setRecuperando(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(correo);
+      if (error) {
+        throw new Error(error.message);
+      }
+      Alert.alert(
+        'Revisa tu correo',
+        `Si ${correo} tiene una cuenta, recibirás un enlace para restablecer tu contraseña.`,
+      );
+    } catch {
+      Alert.alert(
+        'No pudimos enviar el correo',
+        'Verifica tu conexión e inténtalo de nuevo más tarde.',
+      );
+    } finally {
+      setRecuperando(false);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -356,12 +376,17 @@ export function LoginScreen() {
           </View>
 
           <Pressable
-            onPress={recuperarContrasena}
+            onPress={() => void recuperarContrasena()}
+            disabled={recuperando}
             accessibilityRole="button"
             accessibilityLabel="¿Olvidaste tu contraseña?"
             style={estilos.enlaceOlvido}
           >
-            <Text style={estilos.textoOlvido}>¿Olvidaste tu contraseña?</Text>
+            <Text style={estilos.textoOlvido}>
+              {recuperando
+                ? 'Enviando enlace de recuperación…'
+                : '¿Olvidaste tu contraseña?'}
+            </Text>
           </Pressable>
 
           <AppButton

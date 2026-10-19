@@ -63,8 +63,6 @@ type EstadoPermiso = 'pendiente' | 'concedido' | 'denegado';
  *   como marcadores naranja con aviso.
  * - Trazado real de la ruta accesible con Valhalla (Proceso 2) que se dibuja
  *   y encuadra en el mapa, con errores visibles y anunciados (RNF-14/RNF-17).
- * - POIs desde el backend (`GET /mapa`) con degradación a datos de
- *   demostración si el backend no responde.
  */
 export function MapScreen() {
   const insets = useSafeAreaInsets();

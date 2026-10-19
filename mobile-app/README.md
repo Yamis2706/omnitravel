@@ -4,13 +4,13 @@ Adelanto del **Módulo Viajero/Comunidad** de OmniTravel: plataforma colaborativ
 de turismo accesible que centraliza, verifica (crowdsourcing) y personaliza la
 información de accesibilidad de infraestructura turística.
 
-> **Estado:** MVP navegable (rama `main`) con login por roles (U01/U02),
+> **Estado:** MVP navegable (rama `dev_yamis`) con login por roles (U01/U02),
 > registro (U03), inicio con feed (U04), mapa con búsqueda/ruta accesible
 > (U06), navegación con guía por voz (U07), detalle (U08), wizard de reporte
 > en 4 pasos (U09/U10), guardados, perfil con "Mis reportes" (U12) y consola
-> de moderación embebida (M03–M05): datos de la BD del equipo (PostgreSQL en
-> AWS RDS, vía backend NestJS) con degradación a demo tipada y ruteo real
-> contra el backend (`POST /routes`).
+> de moderación embebida (M03–M05): datos de la BD del equipo (Supabase
+> OmniTravel) con degradación a demo tipada y ruteo real contra el backend
+> (`POST /routes`).
 
 ## Stack
 
@@ -76,18 +76,18 @@ npx expo start              # escanea el QR con Expo Go
 
 | Pantalla | Estado | Notas |
 | --- | --- | --- |
-| **U01/U02** Inicio de sesión | ✅ | Primero se elige el rol (viajero/admin. de campaña); luego credenciales contra el backend `POST /auth/login` (JWT cifrado con SecureStore). El rol **informativo**: los permisos reales se validan contra `usuario.rol_id`. Recordamos el último correo con "Entrar sin registrarme" |
-| **U03** Registro y Privacidad | ✅ | Cuenta real vía backend `POST /auth/register` (tabla `usuario` en AWS) + perfil de accesibilidad local + aviso Ley 1581 |
+| **U01/U02** Inicio de sesión | ✅ | Primero se elige el rol (viajero/admin. de campaña); luego credenciales con Supabase Auth y sesión cifrada con SecureStore. El rol **informativo**: los permisos reales se validan contra `usuario.rol_id`. Recordamos el último correo con "Entrar sin registrarme" |
+| **U03** Registro y Privacidad | ✅ | Cuenta real en Supabase Auth + perfil de accesibilidad local + aviso Ley 1581 |
 | **U04** Inicio (feed) | ✅ | BrandMark + campana (aviso honesto "sin notificaciones") + avatar con foto, buscador con filtros, chips de categorías reales, tarjetas con foto demo, distancia (haversine), etiquetas verdes del mockup, fila "validaciones / confiabilidad" y corazón de guardados |
 | **U05** Filtros de accesibilidad | ✅ | Bottom sheet generado desde el catálogo (motriz/sensorial); comparte estado con el mapa y el feed; filtro estricto (sin dato ≠ pasa) |
-| **U06** Mapa y Ruteo | ✅ | Leaflet en WebView con tiles OSM + POIs reales de la BD (fallback demo con aviso) + buscador, chips de categorías, FAB "mi ubicación", **barreras comunitarias** (`GET /reportes/barreras`, marcador naranja) y ruta real contra `POST /routes` con panel "Ruta peatonal" (distancia/duración/advertencias). El mapa mantiene **mínimo la mitad de la pantalla** cuando el panel crece (el contenido se desplaza dentro) |
+| **U06** Mapa y Ruteo | ✅ | Leaflet en WebView con tiles OSM + POIs reales de la BD (fallback demo con aviso) + buscador, chips de categorías, FAB "mi ubicación", **barreras comunitarias** (reportes en validación como marcador naranja) y ruta real contra `POST /routes` con panel "Ruta peatonal" (distancia/duración/advertencias). El mapa mantiene **mínimo la mitad de la pantalla** cuando el panel crece (el contenido se desplaza dentro) |
 | **U07** Navegación paso a paso | ✅ | `maneuvers` de Valhalla + tarjeta de maniobra + **guía por voz con `expo-speech` (es-ES)** activable, stats del avance y "Finalizar ruta"; fallo del motor con mensaje y reintento (RNF-17). «Recalcular ruta» **alterna a un camino distinto** (Valhalla `alternates`) en lugar de repetir el trayecto, con sello "Ruta alternativa" |
 | **U08** Detalle del lugar | ✅ | Ficha dinámica por `tipo_valor` + verificación comunitaria |
-| **U09–U10** Contribuir (reporte) | ✅ | Wizard de **4 pasos = mockup U09/U10**: Tipo (Lugar accesible vs Barrera) → Ubicación (nuevo/actualizar + GPS) → Detalles (descripción 0/500 + **etiquetas rápidas** + foto) → Confirmación. Las etiquetas fijan valores del catálogo y viajan en el mismo `POST /reportes`; pantalla de éxito estilo mockup ("3 confirmaciones") |
+| **U09–U10** Contribuir (reporte) | ✅ | Wizard de **4 pasos = mockup U09/U10**: Tipo (Lugar accesible vs Barrera) → Ubicación (nuevo/actualizar + GPS) → Detalles (descripción 0/500 + **etiquetas rápidas** + foto) → Confirmación. Las etiquetas fijan valores del catálogo y viajan en el mismo `crear_reporte`; pantalla de éxito estilo mockup ("3 confirmaciones") |
 | **S01 / S02** Modales | ✅ | S01 Consenso alcanzado (P1) y S02 barrera crítica en ruta con recálculo (P2) |
 | **M03–M05** Consola de moderación | ✅ | Lista priorizada, detalle con evidencia y decisión con motivo obligatorio; para admin/moderador la pestaña "Reportes" la embebe con chips por estado (pendientes · en revisión · publicados · rechazados · todos) y badges de estado |
-| **Guardados** (favorito) | ✅ | Sincronizado con la tabla `favorito` vía backend (`GET/PUT/DELETE /favoritos`, solo el dueño): corazón en U08 y en el feed con rollback optimista + lista con tarjetas del feed (el corazón lleno quita) |
-| **U12** Perfil | ✅ | Avatar con foto **local por cuenta** (picker + archivo `perfil-foto-<idCuenta>.jpg`; nunca al servidor — Ley 1581; al entrar con otro usuario no se hereda la foto anterior), nivel comunitario calculado de datos reales (puntos = publicados×100 + en validación×40 + confirmaciones×10), stats, "Mis reportes" (`GET /reportes/mios`) con ver-en-mapa, ajustes de privacidad y cerrar sesión; admins ven además su consola |
+| **Guardados** (favorito) | ✅ | Sincronizado con la tabla `favorito` de la BD (RLS del dueño): corazón en U08 y en el feed con rollback optimista + lista con tarjetas del feed (el corazón lleno quita) |
+| **U12** Perfil | ✅ | Avatar con foto **local por cuenta** (picker + archivo `perfil-foto-<idCuenta>.jpg`; nunca al servidor — Ley 1581; al entrar con otro usuario no se hereda la foto anterior), nivel comunitario calculado de datos reales (puntos = publicados×100 + en validación×40 + confirmaciones×10), stats, "Mis reportes" con ver-en-mapa, ajustes de privacidad y cerrar sesión; admins ven además su consola |
 
 ## Decisiones clave
 
@@ -107,7 +107,7 @@ npx expo start              # escanea el QR con Expo Go
   **foto de perfil** (`expo-image-picker` + copia local con `expo-file-system`)
   y el último correo recordado para "entrar sin registrarme".
 - **Foto por cuenta:** la imagen vive en `perfil-foto-<idCuenta>.jpg`
-  (id de fila `usuario`); al iniciar sesión se recupera
+  (id de fila `usuario`, respaldo UUID de Auth); al iniciar sesión se recupera
   el archivo de ESA cuenta y `guardarPerfil` solo arrastra la foto si la
   cuenta no cambió — el bug «todos los perfiles muestran la misma foto» quedó
   cerrado sin enviar la imagen al servidor.
@@ -121,8 +121,8 @@ npx expo start              # escanea el QR con Expo Go
 - **Login por roles con honestidad de permisos:** la pantalla pide primero el
   rol (mockup U01), pero la elección solo orienta la UI; los permisos reales
   (pestaña "Reportes", consola) salen de `usuario.rol_id` de la BD.
-- **Sesión persistente:** el perfil local y el JWT quedan cifrados en el
-  dispositivo, así que la app abre directo en Inicio (U04) sin pasar por login.
+- **Sesión persistente:** si la sesión de Supabase sigue vigente, la app abre
+  directo en Inicio (U04) sin pasar por login.
 - **Gamificación de datos reales:** puntos y niveles se calculan de los
   reportes propios en la BD (`utils/gamificacion.ts`), sin contadores
   inventados.
@@ -146,28 +146,30 @@ npx expo start              # escanea el QR con Expo Go
 - Perfil configurable en una sola pantalla (≤ 3 pantallas / 5 interacciones).
 - Lint con reglas de accesibilidad (`eslint-plugin-triple-rn-a11y`).
 
-## Conexión a la base de datos (AWS)
+## Conexión a Supabase (front)
 
-- La BD del equipo es **PostgreSQL + PostGIS en AWS RDS** (base
-  `omnitravel_db`). La app **no** se conecta a ella ni guarda credenciales:
-  todo pasa por el backend NestJS (`EXPO_PUBLIC_API_URL`, cliente en
-  `src/services/api/client.ts`).
-- Registro/login: `POST /auth/register` y `POST /auth/login`
-  (`src/services/api/auth.ts`). El backend guarda la cuenta en `usuario` con
-  bcrypt y devuelve un JWT (≤ 24 h) que se guarda cifrado con SecureStore y
-  viaja como `Authorization: Bearer` en cada petición.
-- **POIs reales** desde `GET /mapa` (`services/pois.ts` +
-  `store/poisStore.ts`), con degradación a mocks tipados si el backend no
-  responde.
-- Proceso 1: `POST /reportes`, `POST /reportes/:id/confirmaciones`,
-  `GET /pois/:id/reporte-activo`, `GET /moderacion/reportes` y
-  `POST /moderacion/reportes/:id/decision` (`services/reportes.ts`). Las
-  fotos van a `POST /evidencias` (`services/evidencias.ts`); por ahora el
-  backend las guarda en disco y al desplegar en AWS pasarán a S3.
-- Viajero: `GET /reportes/mios` (U12), `GET /reportes/barreras` (mapa U06)
-  y Guardados con `GET /favoritos`, `PUT /favoritos/:poiId` y
-  `DELETE /favoritos/:poiId` (`services/favoritos.ts`).
-- El perfil de accesibilidad sigue siendo 100 % local (no se envía al backend).
+- Proyecto del equipo: **"sarafaustino's Project"** (org OmniTravel, ref
+  `scpwrozsjpittiypvwxj`) — esquema OmniTravel con PostGIS. Informe y
+  coordinación con la BD: `docs/gestion/supabase-sara/README.md`.
+- Cliente compartido en `src/services/supabase/` (URL + publishable key por
+  `.env` NO versionado; copia `.env.example` para crearlo).
+- Registro/login reales vía **Supabase Auth**; la fila de `usuario` queda
+  vinculada por `auth_user_id` (políticas RLS ya aplicadas en la BD el
+  2026-10-17 — registro verificado con INSERT 201 y perfil privado: solo el
+  dueño autenticado ve su fila).
+- **Confirmación de correo desactivada** en el proyecto
+  (`MAILER_AUTOCONFIRM = true`, 2026-10-18): `signUp` devuelve sesión
+  inmediata y el flujo registro → login funciona sin correo de
+  confirmación. Si se reactiva, `registrarCuenta` avisa el paso pendiente
+  sin bloquear la app.
+- **POIs reales** desde la BD (`services/pois.ts` + `store/poisStore.ts`)
+  con degradación a mocks tipados si la lectura sigue bloqueada por RLS.
+- **Contribuir y Guardados operativos con la BD (2026-10-18)**: las RPCs de
+  la Entrega 2 (`crear_reporte`, `confirmar_reporte`, `decidir_reporte`,
+  `listar_reportes_moderacion`) y el bucket `evidencia` quedaron ejecutados
+  en el proyecto; `favorito` recibió políticas del dueño y el corazón de
+  U08 sincroniza con rollback optimista (`store/favoritosStore.ts`).
+- El perfil de accesibilidad sigue siendo 100 % local (no se envía a Supabase).
 
 ## Notas para el equipo (backend / siguientes pasos)
 
@@ -179,13 +181,18 @@ npx expo start              # escanea el QR con Expo Go
    motor la propone) y respuesta normalizada con `pasos[]` (maneuvers) y
    `advertencias[]`.
    Contrato y pruebas: `backend/src/routing/valhalla-payload.ts`.
-2. El Proceso 1 ya escribe a través del backend NestJS (migrado desde las
-   RPC de Supabase manteniendo los mismos códigos de error `CODIGO: mensaje`).
-3. Los datos de Supabase se copian a AWS con
-   `backend/scripts/copiar-supabase-a-aws.mjs`; las cuentas copiadas entran
-   con su misma contraseña (el backend migra el hash a bcrypt).
-4. Pendiente al desplegar: mover las fotos de evidencia del disco del
-   backend a un bucket S3 (la `storage_key` ya tiene la forma `<id_usuario>/<archivo>`).
+2. El Proceso 1 escribe directo a Supabase (RPC `security definer` + Storage
+   del bucket `evidencia`); queda como deuda técnica migrar esas escrituras a
+   NestJS manteniendo el contrato (ADR en `docs/gestion/11-plan-entrega-2.md`).
+3. La BD del equipo tiene aplicadas las políticas RLS del front (2026-10-17),
+   las RPCs + bucket de la Entrega 2 (2026-10-18, `peticiones-front-entrega2.sql`
+   con ajustes documentados) y las políticas de `favorito` de Guardados:
+   `docs/gestion/supabase-sara/`. El mapa muestra POIs reales, registro escribe
+   en `usuario`, Contribuir reporta vía RPC y Guardados sincroniza favoritos.
+4. Config de Auth del proyecto: confirmación de correo desactivada
+   (`MAILER_AUTOCONFIRM = true`); cuenta de prueba personal creada,
+   confirmada y vinculada (fila `usuario` id 11). Detalles en
+   `docs/gestion/supabase-sara/README.md`.
 5. Re-probar en Expo Go tras el primer video: U03 registro → U01 login con
    la cuenta creada → U06 mapa (tiles + marcadores) → U08 detalle. En la
    nueva grabación: no teclear la contraseña a la vista (o editarla) y

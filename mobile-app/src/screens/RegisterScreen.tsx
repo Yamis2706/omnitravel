@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton } from '../components/AppButton';
 import { BrandMark } from '../components/BrandMark';
 import { CampoTexto } from '../components/CampoTexto';
-import { registrarCuenta } from '../services/api/auth';
+import { registrarCuenta } from '../services/supabase/auth';
 import type { IconName } from '../services/types';
 import type { RootStackParamList } from '../navigation/types';
 import {
@@ -73,8 +73,8 @@ export function validarContrasena(contrasena: string): boolean {
 /**
  * U03 — Registro y Privacidad (Habeas Data).
  *
- * La cuenta se crea en el backend (`POST /auth/register`, contraseña con
- * bcrypt en la tabla `usuario`) y la sesión queda iniciada con su JWT.
+ * La cuenta se crea real en Supabase Auth del proyecto OmniTravel del equipo
+ * (y se vincula a la tabla `usuario` cuando las políticas RLS lo permiten).
  * El perfil de accesibilidad se guarda cifrado en el dispositivo y NUNCA se
  * envía al servidor (Ley 1581, RNF-07). Configuración en una sola pantalla
  * (RNF-13).
@@ -128,7 +128,7 @@ export function RegisterScreen() {
 
     setRegistrando(true);
     try {
-      // La cuenta se crea en el backend (PostgreSQL en AWS RDS).
+      // La cuenta vive en Supabase Auth (proyecto OmniTravel del equipo).
       const resultado = await registrarCuenta({
         nombre: nombre.trim(),
         email: email.trim(),
@@ -136,11 +136,11 @@ export function RegisterScreen() {
       });
 
       // El perfil de accesibilidad sigue siendo 100 % local (Ley 1581).
-      // Id de la cuenta dueña del perfil: la fila `usuario` del backend.
+      // Id de la cuenta dueña del perfil: fila `usuario` o UUID de Auth.
       const idCuenta =
         resultado.perfil?.id_usuario != null
           ? String(resultado.perfil.id_usuario)
-          : undefined;
+          : (resultado.idAuthSupabase ?? undefined);
       guardarPerfil({
         nombre: nombre.trim(),
         necesidades,
@@ -155,7 +155,8 @@ export function RegisterScreen() {
         );
       }
 
-      // Aviso informativo (no error), si el backend devuelve alguno.
+      // Aviso informativo (no error) cuando la sincronización con la tabla
+      // `usuario` queda pendiente de las políticas RLS del equipo de datos.
       if (resultado.aviso) {
         Alert.alert('Cuenta creada', resultado.aviso);
       }

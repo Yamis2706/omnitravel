@@ -21,8 +21,6 @@ interface EstadoFavoritos {
   cargar: () => Promise<void>;
   alternar: (idPoi: string) => Promise<'agregado' | 'quitado'>;
   esFavorito: (idPoi: string) => boolean;
-  /** Vacía la lista al cerrar sesión (no se hereda entre cuentas). */
-  reiniciar: () => void;
 }
 
 export const useFavoritosStore = create<EstadoFavoritos>((set, get) => ({
@@ -76,7 +74,4 @@ export const useFavoritosStore = create<EstadoFavoritos>((set, get) => ({
   },
 
   esFavorito: (idPoi) => get().ids.includes(idPoi),
-
-  reiniciar: () =>
-    set({ cargado: false, cargando: false, ids: [], error: undefined }),
 }));
