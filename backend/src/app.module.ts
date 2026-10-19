@@ -10,6 +10,7 @@ import { HealthModule } from './health/health.module';
 import { MapaModule } from './mapa/mapa.module';
 import { ReportesModule } from './reportes/reportes.module';
 import { RoutingModule } from './routing/routing.module';
+import { opcionesSsl, telemetriaActiva } from './config/seguridad';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -22,16 +23,24 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-        ssl: config.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
+        ssl: opcionesSsl(
+          config.get<string>('DB_SSL'),
+          config.get<string>('DB_SSL_CA'),
+        ),
         autoLoadEntities: true,
         synchronize: false, // las tablas ya existen en AWS; no dejar que TypeORM las modifique
       }),
     }),
-    ObserveModule.forRoot({
-      appKey: 'YOUR_APP_KEY',
-      appSecret: 'YOUR_APP_SECRET',
-      serviceId: 'backend',
-    }),
+    // Telemetría externa: solo con credenciales propias del equipo.
+    ...(telemetriaActiva(process.env)
+      ? [
+          ObserveModule.forRoot({
+            appKey: process.env.OBSERVE_APP_KEY as string,
+            appSecret: process.env.OBSERVE_APP_SECRET as string,
+            serviceId: 'backend',
+          }),
+        ]
+      : []),
     AuthModule,
     EvidenciasModule,
     HealthModule,
@@ -42,4 +51,4 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}
