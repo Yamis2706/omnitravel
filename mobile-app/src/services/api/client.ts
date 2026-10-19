@@ -8,6 +8,9 @@ import * as SecureStore from 'expo-secure-store';
  * - Adjunta el JWT de sesión (guardado cifrado con expo-secure-store).
  * - Timeout de 10 s y errores normalizados para que la UI pueda mostrar
  *   mensajes claros (RNF-17: nunca fallar en silencio).
+ * - Sesión vencida: si el JWT ya expiró, o el backend responde 401 a una
+ *   petición autenticada, avisa al manejador registrado (cierra la sesión y
+ *   lleva al login) en lugar de dejar la app en un estado a medias.
  */
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -16,6 +19,58 @@ const TIMEOUT_MS = 10000;
 
 /** Clave del token de sesión en el almacenamiento seguro del dispositivo. */
 export const CLAVE_TOKEN = 'omnitravel-token';
+
+/** Margen para no enviar un token que expira durante la petición. */
+const MARGEN_EXPIRACION_MS = 30_000;
+
+export const MENSAJE_SESION_VENCIDA =
+  'Tu sesión venció. Inicia sesión de nuevo para continuar.';
+
+/**
+ * ¿El JWT ya expiró (o está mal formado)? Solo lee `exp` del payload: la
+ * firma la verifica el backend, aquí basta con no enviar uno caducado.
+ */
+export function tokenVencido(
+  token: string,
+  ahora: number = Date.now(),
+): boolean {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) {
+      return true;
+    }
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const { exp } = JSON.parse(atob(base64)) as { exp?: unknown };
+    if (typeof exp !== 'number') {
+      return true;
+    }
+    return exp * 1000 - MARGEN_EXPIRACION_MS <= ahora;
+  } catch {
+    return true;
+  }
+}
+
+let manejadorSesionVencida: (() => void) | null = null;
+
+/**
+ * Registra quién reacciona a una sesión vencida (la raíz de la app).
+ * Devuelve la función para quitar el registro.
+ */
+export function registrarManejadorSesionVencida(
+  manejador: () => void,
+): () => void {
+  manejadorSesionVencida = manejador;
+  return () => {
+    if (manejadorSesionVencida === manejador) {
+      manejadorSesionVencida = null;
+    }
+  };
+}
+
+/** Las rutas de login/registro responden 401 por credenciales, no por sesión. */
+function esRutaDeAutenticacion(path: string): boolean {
+  return path.startsWith('/auth/');
+}
 
 export class ApiError extends Error {
   readonly status?: number;
@@ -36,7 +91,18 @@ export async function apiFetch<T>(
   const temporizador = setTimeout(() => controlador.abort(), timeoutMs);
 
   try {
-    const token = await SecureStore.getItemAsync(CLAVE_TOKEN).catch(() => null);
+    const guardado = await SecureStore.getItemAsync(CLAVE_TOKEN).catch(
+      () => null,
+    );
+    const autenticada = !esRutaDeAutenticacion(path);
+    let token: string | null = null;
+    if (guardado && autenticada) {
+      if (tokenVencido(guardado)) {
+        manejadorSesionVencida?.();
+        throw new ApiError(MENSAJE_SESION_VENCIDA, 401);
+      }
+      token = guardado;
+    }
     const respuesta = await fetch(`${API_URL}${path}`, {
       ...init,
       signal: controlador.signal,
@@ -46,6 +112,11 @@ export async function apiFetch<T>(
         ...(init?.headers ?? {}),
       },
     });
+
+    if (respuesta.status === 401 && token) {
+      manejadorSesionVencida?.();
+      throw new ApiError(MENSAJE_SESION_VENCIDA, 401);
+    }
 
     if (!respuesta.ok) {
       // NestJS responde con `message` legible (p. ej. validaciones del

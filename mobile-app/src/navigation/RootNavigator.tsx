@@ -1,6 +1,7 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useVigilanciaSesion } from '../hooks/useVigilanciaSesion';
 import { LoginScreen } from '../screens/LoginScreen';
 import { MisReportesScreen } from '../screens/MisReportesScreen';
 import { ModeracionScreen } from '../screens/ModeracionScreen';
@@ -24,6 +25,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export function RootNavigator() {
   const hidratado = useProfileStore((estado) => estado.hidratado);
   const perfil = useProfileStore((estado) => estado.perfil);
+  useVigilanciaSesion(hidratado);
 
   if (!hidratado) {
     return (
